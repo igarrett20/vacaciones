@@ -430,7 +430,7 @@ function outMap(ppl){const m=new Map(),add=(k,o)=>{if(!m.has(k))m.set(k,[]);m.ge
     S.perms.forEach(x=>{if(x.emp===p.id&&live(x.status))add(x.k,{name:p.name,pend:x.status!=='ok',perm:x.hours})})});
   return m}
 /* Quién más del mismo equipo sale en esos días */
-function clashes(x){const e=who(x.emp);if(!e||x.id[0]!=='V')return[];const peers=S.people.filter(p=>p.id!==e.id&&((e.boss&&p.boss===e.boss)||(e.dept&&p.dept===e.dept)));
+function clashes(x){const e=who(x.emp);if(!e||x.id[0]!=='V')return[];const v=me(),peers=S.people.filter(p=>p.id!==e.id&&((e.boss&&p.boss===e.boss)||(e.dept&&p.dept===e.dept))&&(v.role==='rh'||p.boss===v.id));
   const ks=new Set(x.days.map(d=>d.k)),res=[];
   peers.forEach(p=>{const hit=[];S.reqs.forEach(r=>{if(r.emp===p.id&&live(r.status)&&r.id!==x.id)r.days.forEach(d=>{if(ks.has(d.k))hit.push(d.k)})});if(hit.length)res.push(`${p.name} (${hit.sort().map(fD).join(', ')})`)});
   return res}
@@ -498,7 +498,8 @@ function vVac(){
     <div class="box" id="pick"></div>
   </div>
   <div class="section"><h2>Mis solicitudes</h2>
-    <ul class="rows">${mine.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}${r.unpaid?` <span class="tagx">${num(r.unpaid)} sin goce</span>`:''}</span><span class="pill ${r.status}">${STATUS[r.status]}</span>${r.status==='jefatura'||r.status==='rh'?`<button class="lnk red" data-act="cancelReq" data-id="${r.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido vacaciones.</p></li>'}</ul>
+    <ul class="rows">${mine.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}${r.unpaid?` <span class="tagx">${num(r.unpaid)} sin goce</span>`:''}</span><span class="pill ${r.status}">${STATUS[r.status]}</span>${u.role==='rh'&&(r.status==='jefatura'||r.status==='rh')?`<button class="lnk red" data-act="cancelReq" data-id="${r.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido vacaciones.</p></li>'}</ul>
+    ${mine.length&&u.role!=='rh'?'<p class="note">¿Necesitas cancelar o cambiar una solicitud? Avísale a tu jefatura o a RH.</p>':''}
   </div>`;
 }
 function paint(){
@@ -535,7 +536,7 @@ function renderPick(){
   ${unpaid?`<p class="warn soft">${b.free>0?`Solo te alcanzan ${dias(b.free)}${b.pending?` (tienes ${dias(b.pending)} en aprobación)`:''}.`:'No te quedan días disponibles.'} ${upd.length===1?'El siguiente día contará':'Los siguientes '+dias(unpaid)+' contarán'} como <strong>vacaciones sin goce de salario</strong>: ${upd.map(d=>fD(d.k)+(d.unpaid<dv(d.p)?' (medio día)':'')).join(', ')}.</p>`:''}
   <label class="f" style="margin-top:4px"><span>Nota para tu jefatura (opcional)</span><input id="vnote" value="${esc(V.vnote)}" placeholder="Ej.: viaje familiar"></label>
   <button class="btn primary wide" data-act="sendVac">${unpaid?'Enviar con días sin goce':'Enviar solicitud'}</button>
-  <p class="note">${boss?(u.role==='rh'?`La aprueba ${esc(boss.name)}.`:`La aprueba ${esc(boss.name)} y luego RH.`):'La aprueba RH.'} Te llegará el resultado por Teams.</p>`;
+  <p class="note">${u.boss?(u.role==='rh'?`La aprueba ${esc(boss?.name||'tu jefatura')}.`:`La aprueba ${esc(boss?.name||'tu jefatura')} y luego RH.`):'La aprueba RH.'} Te llegará el resultado por Teams.</p>`;
 }
 
 /* Permisos */
@@ -580,7 +581,8 @@ function vPerm(){
     <button class="btn primary wide" id="psend" data-act="sendPerm" ${ok?'':'disabled'}>Enviar permiso</button>
   </div>
   <div><h2>Mis permisos</h2>
-    <ul class="rows">${mine.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${fT(x.start)}</strong><p>${x.motive}. Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?'. Ya repuesto':''}</p></div><span class="amt">${x.hours} h</span><span class="pill ${x.status}">${x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado')}</span>${x.status==='jefatura'||x.status==='rh'?`<button class="lnk red" data-act="cancelPerm" data-id="${x.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido permisos.</p></li>'}</ul>
+    <ul class="rows">${mine.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${fT(x.start)}</strong><p>${x.motive}. Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?'. Ya repuesto':''}</p></div><span class="amt">${x.hours} h</span><span class="pill ${x.status}">${x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado')}</span>${u.role==='rh'&&(x.status==='jefatura'||x.status==='rh')?`<button class="lnk red" data-act="cancelPerm" data-id="${x.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido permisos.</p></li>'}</ul>
+    ${mine.length&&u.role!=='rh'?'<p class="note">¿Necesitas cancelar un permiso? Avísale a tu jefatura o a RH.</p>':''}
   </div></div>`;
 }
 
@@ -711,15 +713,15 @@ const personFields=o=>({Title:o.name,Correo:o.email,Departamento:o.dept||'',Perf
 function sendVac(){
   const u=me(),days=[...V.sel].map(([k,p])=>({k,p})).sort((a,b)=>a.k.localeCompare(b.k));
   const unpaid=splitPaid(days,bal(u.id).free).reduce((a,d)=>a+d.unpaid,0);
-  const to=u.boss&&who(u.boss)?who(u.boss).name:'RH';
+  const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
   act(async()=>{await addItem('solicitudes',{Title:`${u.name}: vacaciones`,EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
-    TotalDias:total(days),Dias:JSON.stringify(days),Nota:V.vnote.trim(),Estado:u.boss&&who(u.boss)?'Jefatura':'RH',DiasSinGoce:unpaid});
+    TotalDias:total(days),Dias:JSON.stringify(days),Nota:V.vnote.trim(),Estado:u.boss?'Jefatura':'RH',DiasSinGoce:unpaid});
     V.sel.clear();V.vnote=''},`Solicitud enviada a ${to}.`);
 }
 function sendPerm(){
-  const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss&&who(u.boss)?who(u.boss).name:'RH';
+  const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
   act(async()=>{await addItem('permisos',{Title:`${u.name}: permiso`,EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
-    FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss&&who(u.boss)?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
+    FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
 }
 function decide(id,ok,why){
   const x=findX(id),e=who(x.emp),list=x.id[0]==='V'?'solicitudes':'permisos';
