@@ -395,12 +395,15 @@ const who=id=>(S.all||[]).find(p=>p.id===id);
 const me=()=>S.people.find(p=>p.id===V.user);
 const dv=p=>p==='full'?1:.5;
 const total=d=>d.reduce((s,x)=>s+dv(x.p),0);
-function months(start){const s=P(start);let m=(TODAY.getFullYear()-s.getFullYear())*12+(TODAY.getMonth()-s.getMonth());if(TODAY.getDate()<s.getDate())m--;return Math.max(0,m)}
-function nextAccrual(start){const s=P(start);const d=new Date(TODAY.getFullYear(),TODAY.getMonth(),Math.min(s.getDate(),28));if(d<=TODAY)d.setMonth(d.getMonth()+1);return K(d)}
+/* Acumulación: medio día por cada 15 días naturales desde la fecha de ingreso */
+const PERIODO=15,POR_PERIODO=0.5;
+const daysSince=start=>Math.max(0,Math.round((TODAY-P(start))/864e5));
+const periods=start=>Math.floor(daysSince(start)/PERIODO);
+function nextAccrual(start){return addD(start,(periods(start)+1)*PERIODO)}
 function bal(id){
   const p=who(id);let ap=0,pe=0;
   S.reqs.forEach(r=>{if(r.emp!==id)return;const t=total(r.days)-(r.unpaid||0);if(r.status==='ok')ap+=t;else if(live(r.status))pe+=t});
-  const earned=months(p.start);const avail=earned-p.prior-ap;
+  const earned=periods(p.start)*POR_PERIODO;const avail=earned-p.prior-ap;
   return{earned,taken:p.prior+ap,pending:pe,avail,free:avail-pe};
 }
 const owedL=id=>S.perms.filter(x=>x.emp===id&&x.status==='ok'&&!x.repaid).sort((a,b)=>a.repK.localeCompare(b.repK));
@@ -454,7 +457,7 @@ function render(){
   const u=me(),b=bal(u.id),nv=nextVac(u.id),o=owed(u.id),ol=owedL(u.id)[0];
   app.innerHTML=`<h1>Hola, ${esc(firstName(u.name))}</h1>
   <div class="stats">
-    <div class="stat main"><span>Días disponibles</span><strong>${num(b.avail)}</strong><small>Ganas 1 día más el ${fD(nextAccrual(u.start))}</small></div>
+    <div class="stat main"><span>Días disponibles</span><strong>${num(b.avail)}</strong><small>Ganas medio día más el ${fD(nextAccrual(u.start))}</small></div>
     <div class="stat"><span>Próximas vacaciones</span><strong>${nv?nv.label:'Ninguna'}</strong><small>${nv?dias(nv.t):'Aún no tienes días aprobados'}</small></div>
     <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?`Repones el ${fD(ol.repK)}, ${fT(ol.repStart)}`:'Estás al día'}</small></div>
   </div>
@@ -544,6 +547,7 @@ function pCheck(f){
   if(!isBiz(f.k))return[0,`El ${fD(f.k)} no es día laboral.`];
   if(f.start<12&&f.start+f.hours>12||f.start+f.hours>17)return[0,'El permiso debe quedar dentro de la mañana (8 a 12) o de la tarde (1 a 5).'];
   if(f.start>=12&&f.start<13)return[0,'Esa hora es el almuerzo. Elige otra hora de salida.'];
+  if(f.motive==='Otro'&&!(f.other||'').trim())return[0,'Escribe una breve explicación del motivo.'];
   if(f.repK<f.k)return[0,'La reposición debe ser el mismo día del permiso o después.'];
   if(f.repK===f.k&&f.repStart<f.start+f.hours&&f.repStart+f.hours>f.start)return[0,'La reposición choca con el horario del permiso.'];
   return[1,`Sales el <strong>${fD(f.k)}</strong> de ${fT(f.start)} a ${fT(f.start+f.hours)} y repones el <strong>${fD(f.repK)}</strong> de ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`.replace(/\.?$/,'.')];
@@ -569,6 +573,7 @@ function vPerm(){
     <label class="f"><span>Sales a las</span><select data-pf="start">${tOpts(8,16,f.start)}</select></label></div>
     <div class="f"><span>Duración</span><div class="seg lg" role="radiogroup">${[1,2].map(h=>`<button type="button" role="radio" aria-checked="${f.hours===h}" data-hours="${h}">${h} ${h===1?'hora':'horas'}</button>`).join('')}</div></div>
     <label class="f"><span>Motivo</span><select data-pf="motive">${MOT.map(m=>`<option ${m===f.motive?'selected':''}>${m}</option>`).join('')}</select></label>
+    ${f.motive==='Otro'?`<label class="f"><span>Explica el motivo</span><textarea data-pf="other" rows="3" placeholder="Cuéntale a tu jefatura para qué es el permiso" style="resize:vertical">${esc(f.other||'')}</textarea></label>`:''}
     <div class="two"><div class="f"><span>Repones el día</span>${dateField('repK',f.repK)}</div>
     <label class="f"><span>Desde las</span><select data-pf="repStart">${tOpts(6,19,f.repStart)}</select></label></div>
     <div class="preview ${ok?'':'bad'}" id="pprev">${msg}</div>
@@ -630,7 +635,7 @@ function vPers(){
   ${ppl.map(p=>{const b=bal(p.id),o=owed(p.id);return `<tr><td><strong>${esc(p.name)}</strong></td><td>${ROLES[p.role]}</td><td>${esc(who(p.boss)?.name||'—')}</td><td>${fL(p.start)}</td><td>${fB(p.bday)}</td><td class="num ${b.avail>ACUM?'hi':''}">${num(b.avail)}</td><td class="num">${o?o+' h':'—'}</td><td style="white-space:nowrap"><button class="lnk" data-act="open" data-emp="${p.id}">Ver y editar</button>${p.id!==V.user?` &nbsp; <button class="lnk red" data-act="delPerson" data-emp="${p.id}">Desactivar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div>`}).join('')}
   ${inactive.length?`<p style="margin-top:22px"><button class="lnk" data-act="toggleInactive">${V.showInactive?'Ocultar':'Ver'} personas desactivadas (${inactive.length})</button></p>${V.showInactive?`<ul class="rows">${inactive.map(p=>`<li><div class="main"><strong>${esc(p.name)}</strong><p>${esc(p.email)}</p></div><button class="lnk" data-act="reactivate" data-emp="${p.id}">Reactivar</button></li>`).join('')}</ul>`:''}`:''}
-  <p class="note">Cada persona gana 1 día por cada mes completo desde su fecha de ingreso. "Días ya tomados" es lo que usó antes de empezar con este sistema. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
+  <p class="note">Cada persona gana medio día por cada 15 días desde su fecha de ingreso. "Días ya tomados" es lo que usó antes de empezar con este sistema. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
 }
 function vRes(){
   const m=V.rm,y=m.getFullYear(),mo=m.getMonth(),dim=new Date(y,mo+1,0).getDate(),ks=Array.from({length:dim},(_,i)=>K(new Date(y,mo,i+1)));
@@ -670,7 +675,7 @@ function vPerson(p){
     ${bdayFields('e',p.bday)}
     <button class="btn primary" data-act="savePerson" data-emp="${p.id}">Guardar cambios</button>
   </div>
-  <div class="calc">${b.earned} meses completos desde el ${fL(p.start)} = <strong>${b.earned} días ganados</strong>. Menos ${num(b.taken)} tomados = <strong>${dias(b.avail)} disponibles</strong>${b.pending?`, con ${dias(b.pending)} en aprobación`:''}.</div>
+  <div class="calc">${periods(p.start)} periodos de 15 días desde el ${fL(p.start)} = <strong>${dias(b.earned)} ganados</strong>. Menos ${num(b.taken)} tomados = <strong>${dias(b.avail)} disponibles</strong>${b.pending?`, con ${dias(b.pending)} en aprobación`:''}.</div>
   <div class="bar"><h2>Vacaciones</h2></div>
   <div class="formrow" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
     <label class="f"><span>Registrar un día tomado</span><input type="date" id="aDay"></label>
@@ -713,8 +718,8 @@ function sendVac(){
 }
 function sendPerm(){
   const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss&&who(u.boss)?who(u.boss).name:'RH';
-  act(()=>addItem('permisos',{Title:`${u.name}: permiso`,EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive,
-    FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss&&who(u.boss)?'Jefatura':'RH',Repuesto:false}),`Permiso enviado a ${to}.`);
+  act(async()=>{await addItem('permisos',{Title:`${u.name}: permiso`,EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
+    FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss&&who(u.boss)?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
 }
 function decide(id,ok,why){
   const x=findX(id),e=who(x.emp),list=x.id[0]==='V'?'solicitudes':'permisos';
@@ -816,7 +821,7 @@ document.addEventListener('click',e=>{
   }
 });
 document.addEventListener('input',e=>{if(e.target.id==='vnote'){V.vnote=e.target.value;return}
-  const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart')?+e.target.value:e.target.value;const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
+  const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart')?+e.target.value:e.target.value;if(k==='motive'){render();return}const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
 document.addEventListener('change',e=>{if(e.target.id==='teamView'){V.team=e.target.value;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&V.picker){V.picker=null;render()}});
 /* Al volver a la pestaña, actualiza los datos si pasó más de un minuto */
@@ -839,6 +844,9 @@ function setupScreen(){
 }
 async function boot(){
   screen('<p class="muted">Cargando…</p>');
+  if(!window.isSecureContext||!window.crypto?.subtle){
+    if(location.protocol==='http:'&&location.hostname!=='localhost'){location.replace('https://'+location.host+location.pathname+location.search);return}
+    screen(`<h1>Esta página necesita una conexión segura</h1><p>Ábrela con una dirección que empiece con <strong>https://</strong>. Si acabas de configurar el dominio, GitHub puede tardar un rato en activar el certificado seguro.</p>`);return}
   try{await initAuth()}catch(e){console.error(e);screen(`<h1>No se pudo iniciar sesión</h1><p>${esc(e.message)}</p>`);return}
   if(!G.account){screen(`<h1>Vacaciones y permisos</h1><p>Entra con tu cuenta de trabajo de Microsoft, la misma de Outlook y Teams.</p><button class="btn primary" data-login>Iniciar sesión</button>`);return}
   try{await connect();showUser();await loadAll()}
@@ -846,6 +854,7 @@ async function boot(){
     screen(e.status===403||e.status===401?`<h1>Todavía no tienes acceso</h1><p>Tu cuenta entró bien, pero aún no tiene permiso para ver los datos de vacaciones. Pide a RH que te dé acceso.</p>`
       :`<h1>No se pudieron cargar los datos</h1><p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">Intentar de nuevo</button>`);return}
   if(!S.all.length){setupScreen();return}
+  {const ids=[lc(G.me.mail),lc(G.me.userPrincipalName)].filter(Boolean);const m=S.all.find(p=>ids.includes(p.id));if(m)V.user=m.id}
   if(!me()){screen(`<h1>Tu cuenta no está registrada</h1><p>Entraste como <strong>${esc(V.user)}</strong>, pero ese correo no está en la lista de Personal${S.all.some(p=>p.email===V.user)?' o está desactivado':''}. Pide a RH que te agregue.</p>`);return}
   V.team=me().role==='rh'?'all':'team';
   render();
