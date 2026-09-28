@@ -706,6 +706,20 @@ function armed(btn,label){if(btn.dataset.armed==='1')return true;
 
 let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),4000)}
 
+/* ---------- Mensaje de Teams con botones (la página lo arma; el flujo solo lo envía) ---------- */
+function teamClash(u,ks){if(!u.boss)return[];const set=new Set(ks),out=[];
+  S.people.filter(p=>p.id!==u.id&&p.boss===u.boss).forEach(p=>{const hit=[];S.reqs.forEach(r=>{if(r.emp===p.id&&live(r.status))r.days.forEach(d=>{if(set.has(d.k))hit.push(d.k)})});if(hit.length)out.push(`${p.name} (${hit.sort().map(fD).join(', ')})`)});return out}
+function card(u,what,facts,clash,forRH){
+  const body=[
+    {type:'TextBlock',text:forRH?'Aprobación de RH':'Solicitud por aprobar',size:'Small',isSubtle:true},
+    {type:'TextBlock',text:`${u.name} pide ${what}`,weight:'Bolder',size:'Medium',wrap:true},
+    {type:'FactSet',facts:facts.filter(f=>f[1]).map(([title,value])=>({title,value:String(value)}))}];
+  if(clash.length)body.push({type:'TextBlock',text:`⚠ Esos días también sale: ${clash.join('; ')}`,wrap:true,color:'Warning'});
+  if(forRH)body.push({type:'TextBlock',text:'Ya la aprobó su jefatura.',wrap:true,isSubtle:true});
+  return JSON.stringify({type:'AdaptiveCard',$schema:'http://adaptivecards.io/schemas/adaptive-card.json',version:'1.4',body,
+    actions:[{type:'Action.Submit',title:'Aprobar',id:'Aprobar',style:'positive'},{type:'Action.Submit',title:'Rechazar',id:'Rechazar',style:'destructive'}]});
+}
+
 /* ---------- Acciones (guardan en SharePoint) ---------- */
 const findX=id=>(id[0]==='V'?S.reqs:S.perms).find(x=>x.id===id);
 const personFields=o=>({Title:o.name,Correo:o.email,Departamento:o.dept||'',Perfil:ROLE_OUT[o.role]||'Colaborador',JefaturaCorreo:o.boss||'',
@@ -715,14 +729,18 @@ function sendVac(){
   const unpaid=splitPaid(days,bal(u.id).free).reduce((a,d)=>a+d.unpaid,0);
   const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
   act(async()=>{const det=[`Días: ${summ(days)} (${dias(total(days))})`,unpaid?`Incluye ${dias(unpaid)} sin goce de salario`:'',`Saldo disponible: ${dias(bal(u.id).avail)}`,V.vnote.trim()?`Nota: ${V.vnote.trim()}`:''].filter(Boolean).join('\n');
-    await addItem('solicitudes',{Title:`${u.name}: vacaciones ${summ(days)} (${dias(total(days))})`.slice(0,250),Detalle:det,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
+    const b=bal(u.id),facts=[['Días',summ(days)],['Total',dias(total(days))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Nota',V.vnote.trim()]],cl=teamClash(u,days.map(d=>d.k));
+    await addItem('solicitudes',{Title:`${u.name}: vacaciones ${summ(days)} (${dias(total(days))})`.slice(0,250),Detalle:det,
+      TarjetaJefatura:card(u,'vacaciones',facts,cl,false),TarjetaRH:card(u,'vacaciones',facts,[],true),JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
     TotalDias:total(days),Dias:JSON.stringify(days),Nota:V.vnote.trim(),Estado:u.boss?'Jefatura':'RH',DiasSinGoce:unpaid});
     V.sel.clear();V.vnote=''},`Solicitud enviada a ${to}.`);
 }
 function sendPerm(){
   const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
   act(async()=>{const mot=f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive;
-    await addItem('permisos',{Title:`${u.name}: permiso ${fD(f.k)}, ${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`.slice(0,250),
+    const facts=[['Día',fD(f.k)],['Horario',`${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`],['Motivo',mot],['Repone',`${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`]];
+    await addItem('permisos',{TarjetaJefatura:card(u,'un permiso',facts,[],false),TarjetaRH:card(u,'un permiso',facts,[],true),
+      Title:`${u.name}: permiso ${fD(f.k)}, ${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`.slice(0,250),
     Detalle:`Motivo: ${mot}\nRepone: ${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
     FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
 }
