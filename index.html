@@ -593,10 +593,10 @@ function vAprob(){
     const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)}.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${fD(x.repK)} a las ${fT(x.repStart)}`;
     const extra=(x.status==='rh'&&e.boss?` Aprobado por ${esc(who(e.boss)?.name)}.`:'')+(isV&&x.unpaid?` <span class="tagx">Incluye ${dias(x.unpaid)} sin goce de salario</span>`:'');
     const cl=isV?clashes(x):[];
-    const acts=u.role!=='rh'?`<a class="btn sm primary" href="${CONFIG.teamsAprobaciones}" target="_blank" rel="noopener">Abrir en Teams</a>`:V.rejecting===x.id?`<input id="why" placeholder="Motivo (opcional)"><button class="btn sm" data-act="noCancel">Volver</button><button class="btn sm danger" data-act="noOk" data-id="${x.id}">Rechazar</button>`
+    const acts=`<a class="btn sm primary" href="${CONFIG.teamsAprobaciones}" target="_blank" rel="noopener">Abrir en Teams</a>`,_old=V.rejecting===x.id?`<input id="why" placeholder="Motivo (opcional)"><button class="btn sm" data-act="noCancel">Volver</button><button class="btn sm danger" data-act="noOk" data-id="${x.id}">Rechazar</button>`
       :`<button class="btn sm" data-act="no" data-id="${x.id}">Rechazar</button><button class="btn sm primary" data-act="yes" data-id="${x.id}">Aprobar</button>`;
     return `<li><div class="main"><strong>${esc(e.name)}, ${isV?'vacaciones':'permiso'}</strong><p>${det}${extra}</p>${cl.length?`<p class="clash">⚠ Esos días también sale: ${cl.map(esc).join('; ')}</p>`:''}</div><span class="amt">${isV?dias(total(x.days)):x.hours+' h'}</span><div class="acts">${acts}</div></li>`};
-  return `<h2>Pendientes</h2><p class="note" style="margin:-6px 0 12px">${u.role==='rh'?'Puedes decidir aquí o desde la tarjeta que te llega en Teams.':'Apruebas o rechazas desde la tarjeta que te llega en Teams (app Aprobaciones). Aquí ves el detalle y si choca con otras personas de tu equipo.'}</p><ul class="rows">${q.map(row).join('')||'<li><p class="empty">No tienes nada por aprobar.</p></li>'}</ul>
+  return `<h2>Pendientes</h2><p class="note" style="margin:-6px 0 12px">Apruebas o rechazas desde la tarjeta que te llega en Teams (app Aprobaciones) o en tu correo. Aquí ves el detalle${u.role==='rh'?'':' y si choca con otras personas de tu equipo'}.</p><ul class="rows">${q.map(row).join('')||'<li><p class="empty">No tienes nada por aprobar.</p></li>'}</ul>
   ${team.length?`<div class="section"><h2>Mi equipo</h2><div class="tbl"><table><thead><tr><th>Persona</th><th class="num">Disponibles</th><th class="num">En aprobación</th><th>Próximas vacaciones</th><th class="num">Por reponer</th><th></th></tr></thead><tbody>
   ${team.map(p=>{const b=bal(p.id),o=owed(p.id),nv=nextVac(p.id);return `<tr><td>${esc(p.name)}</td><td class="num ${b.avail>ACUM?'hi':''}">${num(b.avail)}</td><td class="num">${num(b.pending)}</td><td>${nv?nv.label:'—'}</td><td class="num">${o?o+' h':'—'}</td><td>${o&&u.role==='rh'?`<button class="lnk" data-act="repaid" data-emp="${p.id}">Marcar repuesto</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div></div>`:''}`;
@@ -714,13 +714,16 @@ function sendVac(){
   const u=me(),days=[...V.sel].map(([k,p])=>({k,p})).sort((a,b)=>a.k.localeCompare(b.k));
   const unpaid=splitPaid(days,bal(u.id).free).reduce((a,d)=>a+d.unpaid,0);
   const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
-  act(async()=>{await addItem('solicitudes',{Title:`${u.name}: vacaciones`,EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
+  act(async()=>{const det=[`Días: ${summ(days)} (${dias(total(days))})`,unpaid?`Incluye ${dias(unpaid)} sin goce de salario`:'',`Saldo disponible: ${dias(bal(u.id).avail)}`,V.vnote.trim()?`Nota: ${V.vnote.trim()}`:''].filter(Boolean).join('\n');
+    await addItem('solicitudes',{Title:`${u.name}: vacaciones ${summ(days)} (${dias(total(days))})`.slice(0,250),Detalle:det,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
     TotalDias:total(days),Dias:JSON.stringify(days),Nota:V.vnote.trim(),Estado:u.boss?'Jefatura':'RH',DiasSinGoce:unpaid});
     V.sel.clear();V.vnote=''},`Solicitud enviada a ${to}.`);
 }
 function sendPerm(){
   const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
-  act(async()=>{await addItem('permisos',{Title:`${u.name}: permiso`,EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
+  act(async()=>{const mot=f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive;
+    await addItem('permisos',{Title:`${u.name}: permiso ${fD(f.k)}, ${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`.slice(0,250),
+    Detalle:`Motivo: ${mot}\nRepone: ${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
     FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
 }
 function decide(id,ok,why){
@@ -812,7 +815,7 @@ document.addEventListener('click',e=>{
     case'reactivate':{const p=who(emp);act(()=>setItem('personal',p.spId,{Activo:true}),`${p.name} está activo de nuevo.`);break}
     case'toggleInactive':V.showInactive=!V.showInactive;render();break;
     case'addDay':{const k=val('aDay'),part=val('aPart');if(!k){toast('Elige una fecha.');return}if(!isBiz(k)){toast('Esa fecha es fin de semana o feriado.');return}
-      const p=who(emp);act(()=>addItem('solicitudes',{Title:`${p.name}: registro de RH`,EmpleadoCorreo:p.email,Desde:wd(k),Hasta:wd(k),TotalDias:dv(part),Dias:JSON.stringify([{k,p:part}]),Estado:'Aprobada',Nota:'Registrado por RH',DiasSinGoce:0}),'Día registrado.');break}
+      const p=who(emp);act(()=>addItem('solicitudes',{Title:`${p.name}: registro de RH`,JefaturaCorreo:p.boss||'',RequiereRH:false,EmpleadoCorreo:p.email,Desde:wd(k),Hasta:wd(k),TotalDias:dv(part),Dias:JSON.stringify([{k,p:part}]),Estado:'Aprobada',Nota:'Registrado por RH',DiasSinGoce:0}),'Día registrado.');break}
     case'delReq':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('solicitudes',findX(id).spId),'Eliminado.');break}
     case'delPerm':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('permisos',findX(id).spId),'Eliminado.');break}
     case'addHol':{const k=val('hDay'),n=(val('hName')||'').trim();if(!k||!n){toast('Escribe la fecha y el nombre.');return}if(S.hol[k]){toast('Ya hay un feriado en esa fecha.');return}
