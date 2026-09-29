@@ -348,8 +348,8 @@ const hhmm=t=>`${pad(Math.floor(t))}:${t%1?'30':'00'}`;
 const fromHHMM=s=>{const m=/^(\d{1,2}):(\d{2})/.exec(s||'');return m?+m[1]+(+m[2]>=30?.5:0):0};
 const EST_IN={'Jefatura':'jefatura','RH':'rh','Aprobada':'ok','Rechazada':'no','Cancelada':'cancel'};
 const EST_OUT={jefatura:'Jefatura',rh:'RH',ok:'Aprobada',no:'Rechazada',cancel:'Cancelada'};
-const ROLE_IN={'Colaborador':'colab','Jefatura':'jefe','RH':'rh'};
-const ROLE_OUT={colab:'Colaborador',jefe:'Jefatura',rh:'RH'};
+const ROLE_IN={'Colaborador':'colab','Jefatura':'jefe','RH':'rh','Contabilidad':'conta'};
+const ROLE_OUT={colab:'Colaborador',jefe:'Jefatura',rh:'RH',conta:'Contabilidad'};
 const live=s=>s!=='no'&&s!=='cancel';
 const lc=s=>String(s||'').trim().toLowerCase();
 
@@ -450,8 +450,9 @@ function queue(){const u=me();return [...S.reqs,...S.perms].filter(x=>{const e=w
 /* ---------- Views ---------- */
 const app=document.getElementById('app');
 function tabs(){const u=me(),q=queue().length,t=[['vac','Vacaciones'],['perm','Permisos']];
-  if(u.role!=='colab'||q)t.push(['aprob','Por aprobar',q]);
-  if(u.role==='rh')t.push(['res','Resumen'],['pers','Personal'],['fer','Feriados']);return t}
+  if(u.role==='jefe'||u.role==='rh'||q)t.push(['aprob','Por aprobar',q]);
+  if(u.role==='rh')t.push(['res','Resumen'],['pers','Personal'],['fer','Feriados']);
+  if(u.role==='conta')t.push(['res','Resumen']);return t}
 function render(){
   const T=tabs();if(!T.some(t=>t[0]===V.tab))V.tab='vac';
   const u=me(),b=bal(u.id),nv=nextVac(u.id),o=owed(u.id),ol=owedL(u.id)[0];
@@ -603,8 +604,8 @@ function vAprob(){
 }
 
 /* RH: personal */
-const ROLES={colab:'Colaborador',jefe:'Jefatura',rh:'RH'};
-const bossOpts=(sel,self)=>`<option value="">Sin jefatura (aprueba solo RH)</option>`+S.people.filter(p=>p.role!=='colab'&&p.id!==self).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('');
+const ROLES={colab:'Colaborador',jefe:'Jefatura',rh:'RH',conta:'Contabilidad'};
+const bossOpts=(sel,self)=>`<option value="">Sin jefatura (aprueba solo RH)</option>`+S.people.filter(p=>(p.role==='jefe'||p.role==='rh')&&p.id!==self).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('');
 const bdayFields=(pre,b)=>`<label class="f"><span>Cumpleaños (día)</span><select id="${pre}BD"><option value="">—</option>${Array.from({length:31},(_,i)=>`<option ${b&&+b.slice(3)===i+1?'selected':''}>${i+1}</option>`).join('')}</select></label>
   <label class="f"><span>Mes</span><select id="${pre}BM"><option value="">—</option>${MESES.map((m,i)=>`<option value="${i+1}" ${b&&+b.slice(0,2)===i+1?'selected':''}>${cap(m)}</option>`).join('')}</select></label>`;
 const readBday=pre=>{const d=document.getElementById(pre+'BD').value,m=document.getElementById(pre+'BM').value;return d&&m?`${pad(m)}-${pad(d)}`:''};
@@ -655,9 +656,9 @@ function vRes(){
     ks.forEach(k=>{if(isBday(p.id,k))out.push({p,label:`${fD(k)}, cumpleaños`,t:null,pend:false})})});
   out.sort((a,b)=>(a.p.dept||'').localeCompare(b.p.dept||'')||a.p.name.localeCompare(b.p.name));
   const atStart=false;
-  return `<div class="cal-head"><h2>${cap(mF.format(m).replace(' de ',' '))}</h2><div class="arrows">
+  return `<div class="cal-head"><h2>${cap(mF.format(m).replace(' de ',' '))}</h2><div class="cal-tools"><button class="btn sm" data-act="excel">Descargar Excel</button><div class="arrows">
     <button class="arrow" data-act="rprev" aria-label="Mes anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
-    <button class="arrow" data-act="rnext" aria-label="Mes siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div>
+    <button class="arrow" data-act="rnext" aria-label="Mes siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div></div>
   <div class="tbl"><table class="tl"><thead><tr><th class="nm">Persona</th>${ks.map(k=>`<th class="${isWk(k)?'wk':''} ${S.hol[k]?'hl':''}">${L[P(k).getDay()]}<br>${+k.slice(8)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
   <div class="legend"><span><i class="c-v"></i>Vacaciones</span><span><i class="c-am"></i>Medio día</span><span><i class="c-pe"></i>En aprobación</span><span><i class="c-pr"></i>Permiso</span><span><i class="c-bd"></i>Cumpleaños</span><span><i style="background:#F3EAF6"></i>Feriado</span></div>
   <div class="section"><h2>Quién sale este mes</h2><ul class="rows">${out.map(o=>`<li><div class="main"><strong>${esc(o.p.name)}</strong><p>${esc(o.p.dept||'Sin departamento')}</p></div><span>${o.label}</span>${o.t!=null?`<span class="amt">${dias(o.t)}</span>`:''}${o.pend?'<span class="pill jefatura">En aprobación</span>':''}</li>`).join('')||'<li><p class="empty">Nadie tiene días libres este mes.</p></li>'}</ul></div>`;
@@ -682,7 +683,7 @@ function vPerson(p){
   <div class="formrow" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
     <label class="f"><span>Registrar un día tomado</span><input type="date" id="aDay"></label>
     <label class="f"><span>Tipo</span><select id="aPart"><option value="full">Día completo</option><option value="am">Mañana (8 a 12)</option><option value="pm">Tarde (1 a 5)</option></select></label>
-    <button class="btn" data-act="addDay" data-emp="${p.id}">Agregar como aprobado</button>
+    <button class="btn" data-act="addDay" data-emp="${p.id}">${p.boss?'Registrar y enviar a la jefatura':'Registrar como aprobado'}</button>
   </div>
   <ul class="rows">${reqs.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}</span><span class="pill ${r.status}">${STATUS[r.status]}</span><button class="lnk red" data-act="delReq" data-id="${r.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin vacaciones registradas.</p></li>'}</ul>
   <div class="section"><h2>Permisos</h2><ul class="rows">${perms.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${x.hours} h</strong><p>${x.motive}. Repone ${fD(x.repK)}${x.repaid?'. Ya repuesto':''}</p></div><span class="pill ${x.status}">${STATUS[x.status]}</span>${x.status==='ok'&&!x.repaid?`<button class="lnk" data-act="repaidOne" data-id="${x.id}">Marcar repuesto</button>`:''}<button class="lnk red" data-act="delPerm" data-id="${x.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin permisos.</p></li>'}</ul></div>`;
@@ -768,6 +769,33 @@ function parseImport(txt){
   return raw.map(x=>({...x,boss:x.bossName?byName(x.bossName):'',skip:!x.email?'sin correo':S.all.some(p=>p.email===x.email)?'ya existe':''}));
 }
 
+/* ---------- Descargar Excel (RH y Contabilidad) ---------- */
+function loadXLSX(){return window.XLSX?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';s.onload=ok;s.onerror=()=>no(new Error('No se pudo cargar el generador de Excel'));document.head.appendChild(s)})}
+const ESTADO_TXT={jefatura:'Con jefatura',rh:'Con RH',ok:'Aprobada',no:'Rechazada',cancel:'Cancelada'};
+const PARTE_TXT={full:'Día completo',am:'Mañana (8 a 12)',pm:'Tarde (1 a 5)'};
+const xd=k=>k?new Date(k+'T12:00:00'):'';
+async function downloadExcel(){
+  try{toast('Preparando Excel…');await loadXLSX()}catch(e){toast(e.message);return}
+  const ppl=[...S.all].sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||a.name.localeCompare(b.name));
+  const saldos=ppl.map(p=>{const b=bal(p.id),sg=S.reqs.filter(r=>r.emp===p.id&&r.status==='ok').reduce((s,r)=>s+(r.unpaid||0),0);
+    return{'Nombre':p.name,'Correo':p.email,'Departamento':p.dept||'','Perfil':ROLE_OUT[p.role]||'','Jefatura':who(p.boss)?.name||p.boss||'','Activo':p.active?'Sí':'No',
+      'Fecha de ingreso':xd(p.start),'Días ganados':b.earned,'Días tomados':b.taken,'En aprobación':b.pending,'Disponibles':b.avail,'Días sin goce (aprobados)':sg,'Horas por reponer':owed(p.id)}});
+  const vac=[];
+  S.reqs.filter(r=>r.status!=='no'&&r.status!=='cancel').forEach(r=>{const p=who(r.emp);const days=[...r.days].sort((a,b)=>a.k.localeCompare(b.k));
+    let paidLeft=total(days)-(r.unpaid||0);
+    days.forEach(d=>{const v=dv(d.p),paid=Math.max(0,Math.min(v,paidLeft));paidLeft-=paid;
+      vac.push({'Nombre':p?.name||r.emp,'Departamento':p?.dept||'','Fecha':xd(d.k),'Tipo':PARTE_TXT[d.p]||d.p,'Días':v,'Con goce':paid,'Sin goce':v-paid,'Estado':ESTADO_TXT[r.status]||r.status})})});
+  vac.sort((a,b)=>a.Fecha-b.Fecha||a.Nombre.localeCompare(b.Nombre));
+  const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),
+    'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.repK),'Hora reposición':`${hhmm(x.repStart)} a ${hhmm(x.repStart+x.hours)}`,'Repuesto':x.repaid?'Sí':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
+  const wb=XLSX.utils.book_new();
+  const add=(rows,name,cols)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cols.map(c=>[c,'']))],{header:cols,dateNF:'dd/mm/yyyy'});ws['!cols']=cols.map(c=>({wch:Math.max(12,c.length+2,...rows.slice(0,200).map(r=>String(r[c]??'').length+1))}));XLSX.utils.book_append_sheet(wb,ws,name)};
+  add(saldos,'Saldos',['Nombre','Correo','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días sin goce (aprobados)','Horas por reponer']);
+  add(vac,'Vacaciones por día',['Nombre','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
+  add(perm,'Permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
+  XLSX.writeFile(wb,`Vacaciones y permisos ${TK}.xlsx`);toast('Excel descargado.');
+}
+
 /* ---------- Eventos ---------- */
 let drag=null;
 function dragTo(k){const[a,b]=[drag.a,k].sort();V.sel=new Map(drag.base);for(let d=a;d<=b;d=addD(d,1)){if(!canPick(d))continue;drag.add?(V.sel.has(d)||V.sel.set(d,'full')):V.sel.delete(d)}paint();renderPick()}
@@ -794,6 +822,7 @@ document.addEventListener('click',e=>{
   const a=e.target.closest('[data-act]');if(!a)return;
   const act_=a.dataset.act,id=a.dataset.id,emp=a.dataset.emp,val=s=>document.getElementById(s)?.value;
   switch(act_){
+    case'excel':downloadExcel();break;
     case'rprev':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()-1,1);render();break;
     case'rnext':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()+1,1);render();break;
     case'prev':V.month=new Date(V.month.getFullYear(),V.month.getMonth()-1,1);render();break;
@@ -833,7 +862,14 @@ document.addEventListener('click',e=>{
     case'reactivate':{const p=who(emp);act(()=>setItem('personal',p.spId,{Activo:true}),`${p.name} está activo de nuevo.`);break}
     case'toggleInactive':V.showInactive=!V.showInactive;render();break;
     case'addDay':{const k=val('aDay'),part=val('aPart');if(!k){toast('Elige una fecha.');return}if(!isBiz(k)){toast('Esa fecha es fin de semana o feriado.');return}
-      const p=who(emp);act(()=>addItem('solicitudes',{Title:`${p.name}: registro de RH`,JefaturaCorreo:p.boss||'',RequiereRH:false,EmpleadoCorreo:p.email,Desde:wd(k),Hasta:wd(k),TotalDias:dv(part),Dias:JSON.stringify([{k,p:part}]),Estado:'Aprobada',Nota:'Registrado por RH',DiasSinGoce:0}),'Día registrado.');break}
+      const p=who(emp),conf=!!p.boss,me_=me(),b=bal(p.id),unpaid=Math.max(0,dv(part)-Math.max(0,b.free));
+      const facts=[['Día',`${fD(k)} (${PARTE_TXT[part]||part})`],['Total',dias(dv(part))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Registrado por',me_.name]];
+      const cardJ=JSON.parse(card(p,'vacaciones',facts,[],false));cardJ.body[0].text='Registro de RH por confirmar';cardJ.body[1].text=`RH registró vacaciones para ${p.name}`;
+      cardJ.body.push({type:'TextBlock',text:'Confirma si esta persona tomó o tomará este día de vacaciones.',wrap:true,isSubtle:true});
+      act(()=>addItem('solicitudes',{Title:`${p.name}: registro de RH ${fD(k)} (${dias(dv(part))})`,JefaturaCorreo:p.boss||'',RequiereRH:false,EmpleadoCorreo:p.email,Desde:wd(k),Hasta:wd(k),TotalDias:dv(part),
+        Dias:JSON.stringify([{k,p:part}]),Estado:conf?'Jefatura':'Aprobada',Nota:'Registrado por RH',DiasSinGoce:unpaid,
+        Detalle:`Registrado por RH (${me_.name})\nDía: ${fD(k)} (${PARTE_TXT[part]||part})${unpaid?`\nIncluye ${dias(unpaid)} sin goce de salario`:''}`,TarjetaJefatura:conf?JSON.stringify(cardJ):''}),
+        conf?`Registrado. Se envió a ${who(p.boss)?.name||'la jefatura'} para confirmar.`:'Día registrado.');break}
     case'delReq':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('solicitudes',findX(id).spId),'Eliminado.');break}
     case'delPerm':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('permisos',findX(id).spId),'Eliminado.');break}
     case'addHol':{const k=val('hDay'),n=(val('hName')||'').trim();if(!k||!n){toast('Escribe la fecha y el nombre.');return}if(S.hol[k]){toast('Ya hay un feriado en esa fecha.');return}
