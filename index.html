@@ -342,7 +342,9 @@ const setItem=(list,id,fields)=>gx('PATCH',`/sites/${G.siteId}/lists/${G.listIds
 const delItem=(list,id)=>gx('DELETE',`/sites/${G.siteId}/lists/${G.listIds[list]}/items/${id}`);
 
 /* Fechas: SharePoint guarda "solo fecha" como medianoche local en UTC; se lee con margen de 12 h y se escribe a mediodía UTC */
-const rd=v=>{if(!v)return '';if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;const d=new Date(Date.parse(v)+12*3600e3);return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`};
+/* Lee fechas de SharePoint sin correrlas de día, tanto si la columna es "solo fecha" (medianoche local en UTC)
+   como si incluye hora (la página guarda a mediodía UTC): se suma 6 h y se toma la fecha UTC */
+const rd=v=>{if(!v)return '';if(/^\d{4}-\d{2}-\d{2}$/.test(v))return v;const d=new Date(Date.parse(v)+6*3600e3);return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`};
 const wd=k=>k?k+'T12:00:00Z':null;
 const hhmm=t=>`${pad(Math.floor(t))}:${t%1?'30':'00'}`;
 const fromHHMM=s=>{const m=/^(\d{1,2}):(\d{2})/.exec(s||'');return m?+m[1]+(+m[2]>=30?.5:0):0};
