@@ -876,17 +876,17 @@ document.addEventListener('click',e=>{
       act(async()=>{let n=0;for(const r of rows){await addItem('personal',personFields(r));n++;toast(`Agregando ${n} de ${rows.length}…`)}
         V.importing=false;V.importRows=null;V.importText=''},`${rows.length} personas agregadas.`);break}
     case'copyTsv':{const t=document.getElementById('tsv');t.select();let ok=false;try{ok=document.execCommand('copy')}catch(e){}if(!ok&&navigator.clipboard){navigator.clipboard.writeText(t.value).then(()=>toast('Lista copiada.'),()=>toast('Selecciona el texto y copia con Ctrl+C.'))}else toast(ok?'Lista copiada.':'Selecciona el texto y copia con Ctrl+C.');break}
-    case'addToggle':V.adding=!V.adding;render();break;
+    case'addToggle':V.adding=!V.adding;if(!V.adding)clearDraft();render();break;
     case'addPerson':{const name=(val('nName')||'').trim(),email=lc(val('nEmail'));
       if(!name||!email){toast('Escribe el nombre y el correo.');return}
       if(S.all.some(p=>p.email===email)){toast('Ya existe una persona con ese correo.');return}
-      act(()=>addItem('personal',personFields({name,email,dept:(val('nDept')||'').trim(),bday:readBday('n'),role:val('nRole'),boss:val('nBoss')||'',start:val('nStart')||TK,prior:readPrior('n',null)})),`${name} agregado.`).then(()=>{V.adding=false;render()});break}
+      act(()=>addItem('personal',personFields({name,email,dept:(val('nDept')||'').trim(),bday:readBday('n'),role:val('nRole'),boss:val('nBoss')||'',start:val('nStart')||TK,prior:readPrior('n',null)})),`${name} agregado.`).then(()=>{if(S.all.some(p=>p.email===email)){V.adding=false;clearDraft()}render()});break}
     case'open':V.person=emp;render();break;
-    case'closePerson':V.person=null;render();break;
+    case'closePerson':V.person=null;clearDraft();render();break;
     case'savePerson':{const p=who(emp),email=lc(val('eEmail'))||p.email;
       if(email!==p.email&&S.all.some(o=>o.email===email)){toast('Ya existe una persona con ese correo.');return}
       act(async()=>{await setItem('personal',p.spId,personFields({name:(val('eName')||'').trim()||p.name,email,dept:(val('eDept')||'').trim(),bday:readBday('e'),role:val('eRole'),boss:val('eBoss')||'',start:val('eStart')||p.start,prior:readPrior('e',p),active:p.active}));
-        if(email!==p.email)V.person=email},'Cambios guardados.');break}
+        if(email!==p.email)V.person=email;clearDraft()},'Cambios guardados.');break}
     case'delPerson':{const p=who(emp);if(!armed(a,`¿Seguro? Toca otra vez para desactivar a ${p.name}`))return;
       act(async()=>{await setItem('personal',p.spId,{Activo:false});V.person=null},`${p.name} quedó desactivado. Su historial se conserva.`);break}
     case'reactivate':{const p=who(emp);act(()=>setItem('personal',p.spId,{Activo:true}),`${p.name} está activo de nuevo.`);break}
@@ -913,11 +913,27 @@ document.addEventListener('input',e=>{if(e.target.id==='vnote'){V.vnote=e.target
   const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart')?+e.target.value:e.target.value;if(k==='motive'){render();return}const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
 document.addEventListener('change',e=>{if(e.target.id==='teamView'){V.team=e.target.value;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&V.picker){V.picker=null;render()}});
-/* Cada 2 minutos actualiza los datos solos, si la persona no está a medio llenar algo */
+/* ---------- No perder lo que se está escribiendo ----------
+   1) Los refrescos automáticos guardan y devuelven lo escrito en los formularios.
+   2) Además se guarda un borrador en esta pestaña del navegador, por si la página se recarga. */
+const FORM_SEL='#app input[id],#app select[id],#app textarea[id]';
+function snapForm(){const o={};document.querySelectorAll(FORM_SEL).forEach(el=>{if(el.type!=='file')o[el.id]=el.type==='checkbox'?el.checked:el.value});return o}
+function restoreForm(o){if(!o)return;Object.entries(o).forEach(([id,v])=>{const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=v;else el.value=v});
+  ['n','e'].forEach(pre=>{const c=document.getElementById(pre+'Calc');if(c&&typeof calcText==='function')c.innerHTML=calcText(pre,pre==='e'?who(V.person):null)})}
+function softRefresh(){const ae=document.activeElement,focusId=ae&&ae.id,snap=snapForm();
+  return loadAll().then(()=>{render();restoreForm(snap);if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{const n=el.value.length;el.setSelectionRange&&el.setSelectionRange(n,n)}catch(e){}}}}).catch(()=>{})}
+const DKEY='gg-vac-borrador';
+function draftCtx(){return V.adding?'add':V.person?'edit:'+V.person:V.importing?'imp':V.tab==='fer'?'fer':''}
+function saveDraft(){try{const ctx=draftCtx();if(!ctx)return;sessionStorage.setItem(DKEY,JSON.stringify({ctx,tab:V.tab,adding:V.adding,person:V.person,importing:V.importing,vals:snapForm()}))}catch(e){}}
+function clearDraft(){try{sessionStorage.removeItem(DKEY)}catch(e){}}
+function loadDraft(){try{return JSON.parse(sessionStorage.getItem(DKEY)||'null')}catch(e){return null}}
+document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#app'))saveDraft()});
+document.addEventListener('change',e=>{if(e.target.closest&&e.target.closest('#app'))saveDraft()});
+/* Cada 2 minutos actualiza los datos, sin borrar lo escrito */
 setInterval(()=>{const ae=document.activeElement,typing=ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName);
-  if(document.visibilityState==='visible'&&me()&&!busy&&!typing&&!V.adding&&!V.person&&!V.importing&&!V.picker&&!drag&&!V.sel.size&&!V.rejecting)loadAll().then(render).catch(()=>{})},120e3);
-/* Al volver a la pestaña, actualiza los datos si pasó más de un minuto */
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&me()&&!busy&&Date.now()-G.loadedAt>60e3)loadAll().then(render).catch(()=>{})});
+  if(document.visibilityState==='visible'&&me()&&!busy&&!typing&&!V.picker&&!drag&&!V.sel.size)softRefresh()},120e3);
+/* Al volver a la pestaña, actualiza si pasó más de un minuto, sin borrar lo escrito */
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&me()&&!busy&&!drag&&Date.now()-G.loadedAt>60e3)softRefresh()});
 
 function setupMe(){const val=s=>document.getElementById(s)?.value,name=(val('sName')||'').trim(),start=val('sStart');if(!name||!start){toast('Escribe tu nombre y fecha de ingreso.');return}
   act(async()=>{await addItem('personal',personFields({name,email:V.user,dept:(val('sDept')||'').trim(),role:'rh',boss:'',start,prior:+val('sPrior')||0,bday:''}));V.team='all'},'Listo. Ya estás registrado como RH.')}
@@ -949,7 +965,10 @@ async function boot(){
   {const ids=[lc(G.me.mail),lc(G.me.userPrincipalName)].filter(Boolean);const m=S.all.find(p=>ids.includes(p.id));if(m)V.user=m.id}
   if(!me()){screen(`<h1>Tu cuenta no está registrada</h1><p>Entraste como <strong>${esc(V.user)}</strong>, pero ese correo no está en la lista de Personal${S.all.some(p=>p.email===V.user)?' o está desactivado':''}. Pide a RH que te agregue.</p>`);return}
   V.team=me().role==='rh'?'all':'team';
+  const dr=loadDraft();
+  if(dr&&me().role==='rh'){V.tab=dr.tab||V.tab;V.adding=!!dr.adding;V.person=dr.person&&who(dr.person)?dr.person:null;V.importing=!!dr.importing}
   render();
+  if(dr&&me().role==='rh'&&dr.ctx===draftCtx()){restoreForm(dr.vals);toast('Recuperamos lo que estabas escribiendo.')}
 }
 boot();
 
