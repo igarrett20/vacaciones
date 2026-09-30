@@ -616,7 +616,7 @@ function vPers(){
   const inactive=S.all.filter(p=>!p.active);
   const ir=V.importRows;
   return `<div class="bar"><h2>Personal</h2><div class="acts"><button class="btn sm" data-act="importToggle">${V.importing?'Cerrar':'Importar lista'}</button><button class="btn sm" data-act="exportToggle">${V.exporting?'Cerrar lista':'Copiar lista para Excel'}</button><button class="btn primary sm" data-act="addToggle">${V.adding?'Cerrar':'Agregar persona'}</button></div></div>
-  ${V.importing?`<div class="box" style="margin-bottom:18px"><h2>Importar lista</h2><p class="small muted" style="margin-top:0">Pega aquí la lista copiada del prototipo ("Copiar lista para Excel") o de Excel, con estas columnas en este orden: Nombre, Correo, Departamento, Perfil, Jefatura (nombre), Fecha de ingreso, Cumpleaños, Días ya tomados.</p>
+  ${V.importing?`<div class="box" style="margin-bottom:18px"><h2>Importar lista</h2><p class="small muted" style="margin-top:0">Pega aquí la lista copiada del prototipo ("Copiar lista para Excel") o de Excel, con estas columnas en este orden: Nombre, Correo, Departamento, Perfil, Jefatura (nombre), Fecha de ingreso, Cumpleaños, Días ya tomados. Si en vez de días tomados tienes los <strong>días disponibles hoy</strong>, deja la fila de títulos y ponle a la última columna "Días disponibles": la página calcula el resto.</p>
     <textarea id="imp" rows="6" style="width:100%;font:12px ui-monospace,monospace;border:1px solid var(--line-strong);border-radius:8px;padding:8px">${esc(V.importText||'')}</textarea>
     <button class="btn sm" data-act="importPreview" style="margin-top:8px">Revisar</button>
     ${ir?`<div class="tbl" style="margin-top:12px"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Departamento</th><th>Perfil</th><th>Jefatura</th><th>Ingreso</th><th>Cumpleaños</th><th class="num">Tomados</th><th></th></tr></thead><tbody>${ir.map(r=>`<tr style="${r.skip?'opacity:.45':''}"><td>${esc(r.name)}</td><td>${esc(r.email)}</td><td>${esc(r.dept)}</td><td>${ROLES[r.role]}</td><td>${esc(r.bossName)}${r.bossName&&!r.boss?' <span class="tagx">sin correo</span>':''}</td><td>${fL(r.start)}</td><td>${fB(r.bday)}</td><td class="num">${num(r.prior)}</td><td>${r.skip?`<span class="tagx">${r.skip}</span>`:''}</td></tr>`).join('')}</tbody></table></div>
@@ -630,7 +630,7 @@ function vPers(){
     <label class="f"><span>Perfil</span><select id="nRole">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
     <label class="f"><span>Jefatura</span><select id="nBoss">${bossOpts('')}</select></label>
     <label class="f"><span>Fecha de ingreso</span><input type="date" id="nStart" value="${TK}"></label>
-    <label class="f"><span>Días ya tomados</span><input type="number" step="0.5" min="0" id="nPrior" value="0"></label>
+    ${daysField('n',null)}
     ${bdayFields('n','')}
     <button class="btn primary" data-act="addPerson">Guardar</button></div>`:''}
   ${depts().map(d=>{const ppl=S.people.filter(p=>(p.dept||'Sin departamento')===d).sort((a,b)=>a.name.localeCompare(b.name));return `<h3 class="dept-h">${esc(d)} <span class="muted small" style="font-weight:500">(${ppl.length})</span></h3>
@@ -638,7 +638,7 @@ function vPers(){
   ${ppl.map(p=>{const b=bal(p.id),o=owed(p.id);return `<tr><td><strong>${esc(p.name)}</strong></td><td>${ROLES[p.role]}</td><td>${esc(who(p.boss)?.name||'—')}</td><td>${fL(p.start)}</td><td>${fB(p.bday)}</td><td class="num ${b.avail>ACUM?'hi':''}">${num(b.avail)}</td><td class="num">${o?o+' h':'—'}</td><td style="white-space:nowrap"><button class="lnk" data-act="open" data-emp="${p.id}">Ver y editar</button>${p.id!==V.user?` &nbsp; <button class="lnk red" data-act="delPerson" data-emp="${p.id}">Desactivar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div>`}).join('')}
   ${inactive.length?`<p style="margin-top:22px"><button class="lnk" data-act="toggleInactive">${V.showInactive?'Ocultar':'Ver'} personas desactivadas (${inactive.length})</button></p>${V.showInactive?`<ul class="rows">${inactive.map(p=>`<li><div class="main"><strong>${esc(p.name)}</strong><p>${esc(p.email)}</p></div><button class="lnk" data-act="reactivate" data-emp="${p.id}">Reactivar</button></li>`).join('')}</ul>`:''}`:''}
-  <p class="note">Cada persona gana medio día por cada 15 días desde su fecha de ingreso. "Días ya tomados" es lo que usó antes de empezar con este sistema. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
+  <p class="note">Cada persona gana medio día por cada 15 días desde su fecha de ingreso. Al agregar a alguien puedes poner sus días disponibles hoy o los ya tomados; el otro número se calcula solo. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
 }
 function vRes(){
   const m=V.rm,y=m.getFullYear(),mo=m.getMonth(),dim=new Date(y,mo+1,0).getDate(),ks=Array.from({length:dim},(_,i)=>K(new Date(y,mo,i+1)));
@@ -674,7 +674,7 @@ function vPerson(p){
     <label class="f"><span>Perfil</span><select id="eRole">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${k===p.role?'selected':''}>${v}</option>`).join('')}</select></label>
     <label class="f"><span>Jefatura</span><select id="eBoss">${bossOpts(p.boss,p.id)}</select></label>
     <label class="f"><span>Fecha de ingreso</span><input type="date" id="eStart" value="${p.start}"></label>
-    <label class="f"><span>Días ya tomados</span><input type="number" step="0.5" min="0" id="ePrior" value="${p.prior}"></label>
+    ${daysField('e',p)}
     ${bdayFields('e',p.bday)}
     <button class="btn primary" data-act="savePerson" data-emp="${p.id}">Guardar cambios</button>
   </div>
@@ -729,8 +729,9 @@ function sendVac(){
   const u=me(),days=[...V.sel].map(([k,p])=>({k,p})).sort((a,b)=>a.k.localeCompare(b.k));
   const unpaid=splitPaid(days,bal(u.id).free).reduce((a,d)=>a+d.unpaid,0);
   const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
-  act(async()=>{const det=[`Días: ${summ(days)} (${dias(total(days))})`,unpaid?`Incluye ${dias(unpaid)} sin goce de salario`:'',`Saldo disponible: ${dias(bal(u.id).avail)}`,V.vnote.trim()?`Nota: ${V.vnote.trim()}`:''].filter(Boolean).join('\n');
-    const b=bal(u.id),facts=[['Días',summ(days)],['Total',dias(total(days))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Nota',V.vnote.trim()]],cl=teamClash(u,days.map(d=>d.k));
+  act(async()=>{const b=bal(u.id),rest=b.avail-(total(days)-unpaid);
+    const det=[`Días: ${summ(days)} (${dias(total(days))})`,unpaid?`Incluye ${dias(unpaid)} sin goce de salario`:'',`Saldo restante: ${dias(rest)}`,V.vnote.trim()?`Nota: ${esc(V.vnote.trim())}`:''].filter(Boolean).join('<br>');
+    const facts=[['Días',summ(days)],['Total',dias(total(days))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Saldo restante',dias(rest)],['Nota',V.vnote.trim()]],cl=teamClash(u,days.map(d=>d.k));
     await addItem('solicitudes',{Title:`${u.name}: vacaciones ${summ(days)} (${dias(total(days))})`.slice(0,250),Detalle:det,
       TarjetaJefatura:card(u,'vacaciones',facts,cl,false),TarjetaRH:card(u,'vacaciones',facts,[],true),JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Desde:wd(days[0].k),Hasta:wd(days.at(-1).k),
     TotalDias:total(days),Dias:JSON.stringify(days),Nota:V.vnote.trim(),Estado:u.boss?'Jefatura':'RH',DiasSinGoce:unpaid});
@@ -742,7 +743,7 @@ function sendPerm(){
     const facts=[['Día',fD(f.k)],['Horario',`${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`],['Motivo',mot],['Repone',`${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`]];
     await addItem('permisos',{TarjetaJefatura:card(u,'un permiso',facts,[],false),TarjetaRH:card(u,'un permiso',facts,[],true),
       Title:`${u.name}: permiso ${fD(f.k)}, ${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`.slice(0,250),
-    Detalle:`Motivo: ${mot}\nRepone: ${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
+    Detalle:`Motivo: ${esc(mot)}<br>Repone: ${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
     FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
 }
 function decide(id,ok,why){
@@ -762,9 +763,9 @@ function parseBday(s){s=String(s||'').trim();let m;
   const d=parseDate(s);return d?d.slice(5):''}
 function parseImport(txt){
   const rows=txt.split(/\r?\n/).map(l=>l.split('\t')).filter(r=>r.some(c=>c.trim()));
-  if(rows.length&&/nombre/i.test(rows[0][0]))rows.shift();
+  let dispMode=false;if(rows.length&&/nombre/i.test(rows[0][0])){dispMode=/disponible/i.test(rows[0][7]||'');rows.shift()}
   const raw=rows.map(r=>({name:(r[0]||'').trim(),email:lc(r[1]),dept:(r[2]||'').trim(),role:ROLE_IN[(r[3]||'').trim()]||'colab',bossName:(r[4]||'').trim(),
-    start:parseDate(r[5])||TK,bday:parseBday(r[6]),prior:parseFloat(String(r[7]||'0').replace(',','.'))||0}));
+    start:parseDate(r[5])||TK,bday:parseBday(r[6]),prior:parseFloat(String(r[7]||'0').replace(',','.'))||0})).map(x=>dispMode?{...x,prior:periods(x.start)*POR_PERIODO-x.prior}:x);
   const byName=n=>{n=lc(n);return raw.find(x=>lc(x.name)===n)?.email||S.all.find(p=>lc(p.name)===n)?.email||''};
   return raw.map(x=>({...x,boss:x.bossName?byName(x.bossName):'',skip:!x.email?'sin correo':S.all.some(p=>p.email===x.email)?'ya existe':''}));
 }
@@ -795,6 +796,33 @@ async function downloadExcel(){
   add(perm,'Permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
   XLSX.writeFile(wb,`Vacaciones y permisos ${TK}.xlsx`);toast('Excel descargado.');
 }
+
+/* ---------- Saldo al cargar una persona: RH puede poner "disponibles hoy" o "ya tomados" ---------- */
+const apInSystem=p=>p?S.reqs.filter(r=>r.emp===p.id&&r.status==='ok').reduce((s,r)=>s+total(r.days)-(r.unpaid||0),0):0;
+function daysField(pre,p){
+  const val=p?num(bal(p.id).avail).replace(',','.'):'';
+  return `<label class="f"><span>Saldo de vacaciones</span><select id="${pre}Mode" data-calc="${pre}"><option value="disp">Días disponibles hoy</option><option value="tom">Días ya tomados</option></select></label>
+  <label class="f"><span>Días</span><input type="number" step="0.5" id="${pre}Days" data-calc="${pre}" value="${val}" placeholder="Ej.: 15.5"></label>
+  <p class="small muted" id="${pre}Calc" style="grid-column:1/-1;margin:0">${calcText(pre,p)}</p>`;
+}
+function calcParts(pre,p){
+  const g=id=>document.getElementById(id);
+  const start=g(pre+'Start')?.value||p?.start||TK,mode=g(pre+'Mode')?.value||'disp',raw=g(pre+'Days')?.value;
+  const earned=periods(start)*POR_PERIODO,ap=apInSystem(p);
+  if(raw===''||raw==null)return{earned,ap,prior:p?p.prior:0,avail:earned-(p?p.prior:0)-ap,empty:true};
+  const n=parseFloat(String(raw).replace(',','.'))||0;
+  const prior=mode==='tom'?n:earned-n-ap;
+  return{earned,ap,prior,avail:earned-prior-ap};
+}
+function calcText(pre,p){
+  const c=calcParts(pre,p);
+  if(c.empty&&!p)return 'Escribe los días disponibles hoy o los ya tomados; el otro número se calcula solo con la fecha de ingreso.';
+  return `Desde su ingreso ha ganado <strong>${dias(c.earned)}</strong>. Tomados antes del sistema: <strong>${dias(c.prior)}</strong>${c.ap?`, más ${dias(c.ap)} aprobados en el sistema`:''}. Disponibles hoy: <strong>${dias(c.avail)}</strong>.${c.prior<0?' <span class="tagx">Tiene más días de los que ha ganado</span>':''}`;
+}
+const readPrior=(pre,p)=>Math.round(calcParts(pre,p).prior*2)/2;
+document.addEventListener('input',e=>{const pre=e.target.dataset?.calc||(/^(n|e)Start$/.test(e.target.id)?e.target.id[0]:null);if(!pre)return;
+  const el=document.getElementById(pre+'Calc');if(el)el.innerHTML=calcText(pre,pre==='e'?who(V.person):null)});
+document.addEventListener('change',e=>{const pre=e.target.dataset?.calc;if(!pre)return;const el=document.getElementById(pre+'Calc');if(el)el.innerHTML=calcText(pre,pre==='e'?who(V.person):null)});
 
 /* ---------- Eventos ---------- */
 let drag=null;
@@ -850,12 +878,12 @@ document.addEventListener('click',e=>{
     case'addPerson':{const name=(val('nName')||'').trim(),email=lc(val('nEmail'));
       if(!name||!email){toast('Escribe el nombre y el correo.');return}
       if(S.all.some(p=>p.email===email)){toast('Ya existe una persona con ese correo.');return}
-      act(async()=>{await addItem('personal',personFields({name,email,dept:(val('nDept')||'').trim(),bday:readBday('n'),role:val('nRole'),boss:val('nBoss')||'',start:val('nStart')||TK,prior:+val('nPrior')||0}));V.adding=false},`${name} agregado.`);break}
+      act(()=>addItem('personal',personFields({name,email,dept:(val('nDept')||'').trim(),bday:readBday('n'),role:val('nRole'),boss:val('nBoss')||'',start:val('nStart')||TK,prior:readPrior('n',null)})),`${name} agregado.`).then(()=>{V.adding=false;render()});break}
     case'open':V.person=emp;render();break;
     case'closePerson':V.person=null;render();break;
     case'savePerson':{const p=who(emp),email=lc(val('eEmail'))||p.email;
       if(email!==p.email&&S.all.some(o=>o.email===email)){toast('Ya existe una persona con ese correo.');return}
-      act(async()=>{await setItem('personal',p.spId,personFields({name:(val('eName')||'').trim()||p.name,email,dept:(val('eDept')||'').trim(),bday:readBday('e'),role:val('eRole'),boss:val('eBoss')||'',start:val('eStart')||p.start,prior:+val('ePrior')||0,active:p.active}));
+      act(async()=>{await setItem('personal',p.spId,personFields({name:(val('eName')||'').trim()||p.name,email,dept:(val('eDept')||'').trim(),bday:readBday('e'),role:val('eRole'),boss:val('eBoss')||'',start:val('eStart')||p.start,prior:readPrior('e',p),active:p.active}));
         if(email!==p.email)V.person=email},'Cambios guardados.');break}
     case'delPerson':{const p=who(emp);if(!armed(a,`¿Seguro? Toca otra vez para desactivar a ${p.name}`))return;
       act(async()=>{await setItem('personal',p.spId,{Activo:false});V.person=null},`${p.name} quedó desactivado. Su historial se conserva.`);break}
@@ -863,12 +891,12 @@ document.addEventListener('click',e=>{
     case'toggleInactive':V.showInactive=!V.showInactive;render();break;
     case'addDay':{const k=val('aDay'),part=val('aPart');if(!k){toast('Elige una fecha.');return}if(!isBiz(k)){toast('Esa fecha es fin de semana o feriado.');return}
       const p=who(emp),conf=!!p.boss,me_=me(),b=bal(p.id),unpaid=Math.max(0,dv(part)-Math.max(0,b.free));
-      const facts=[['Día',`${fD(k)} (${PARTE_TXT[part]||part})`],['Total',dias(dv(part))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Registrado por',me_.name]];
+      const facts=[['Día',`${fD(k)} (${PARTE_TXT[part]||part})`],['Total',dias(dv(part))],['Sin goce',unpaid?dias(unpaid):''],['Saldo actual',dias(b.avail)],['Saldo restante',dias(b.avail-(dv(part)-unpaid))],['Registrado por',me_.name]];
       const cardJ=JSON.parse(card(p,'vacaciones',facts,[],false));cardJ.body[0].text='Registro de RH por confirmar';cardJ.body[1].text=`RH registró vacaciones para ${p.name}`;
       cardJ.body.push({type:'TextBlock',text:'Confirma si esta persona tomó o tomará este día de vacaciones.',wrap:true,isSubtle:true});
       act(()=>addItem('solicitudes',{Title:`${p.name}: registro de RH ${fD(k)} (${dias(dv(part))})`,JefaturaCorreo:p.boss||'',RequiereRH:false,EmpleadoCorreo:p.email,Desde:wd(k),Hasta:wd(k),TotalDias:dv(part),
         Dias:JSON.stringify([{k,p:part}]),Estado:conf?'Jefatura':'Aprobada',Nota:'Registrado por RH',DiasSinGoce:unpaid,
-        Detalle:`Registrado por RH (${me_.name})\nDía: ${fD(k)} (${PARTE_TXT[part]||part})${unpaid?`\nIncluye ${dias(unpaid)} sin goce de salario`:''}`,TarjetaJefatura:conf?JSON.stringify(cardJ):''}),
+        Detalle:`Registrado por RH (${me_.name})<br>Día: ${fD(k)} (${PARTE_TXT[part]||part})${unpaid?`<br>Incluye ${dias(unpaid)} sin goce de salario`:''}<br>Saldo restante: ${dias(b.avail-(dv(part)-unpaid))}`,TarjetaJefatura:conf?JSON.stringify(cardJ):''}),
         conf?`Registrado. Se envió a ${who(p.boss)?.name||'la jefatura'} para confirmar.`:'Día registrado.');break}
     case'delReq':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('solicitudes',findX(id).spId),'Eliminado.');break}
     case'delPerm':{if(!armed(a,'¿Seguro? Toca otra vez'))return;act(()=>delItem('permisos',findX(id).spId),'Eliminado.');break}
@@ -883,6 +911,9 @@ document.addEventListener('input',e=>{if(e.target.id==='vnote'){V.vnote=e.target
   const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart')?+e.target.value:e.target.value;if(k==='motive'){render();return}const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
 document.addEventListener('change',e=>{if(e.target.id==='teamView'){V.team=e.target.value;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&V.picker){V.picker=null;render()}});
+/* Cada 2 minutos actualiza los datos solos, si la persona no está a medio llenar algo */
+setInterval(()=>{const ae=document.activeElement,typing=ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName);
+  if(document.visibilityState==='visible'&&me()&&!busy&&!typing&&!V.adding&&!V.person&&!V.importing&&!V.picker&&!drag&&!V.sel.size&&!V.rejecting)loadAll().then(render).catch(()=>{})},120e3);
 /* Al volver a la pestaña, actualiza los datos si pasó más de un minuto */
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&me()&&!busy&&Date.now()-G.loadedAt>60e3)loadAll().then(render).catch(()=>{})});
 
