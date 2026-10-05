@@ -437,7 +437,7 @@ const earnedAt=(start,k)=>accMonths(start,P(k))*POR_MES;
 /* Reparte una selección en días pagados, adelantados y sin goce.
    "free" es lo disponible hoy. Para fechas futuras también cuentan los días que se ganan antes de esa fecha (adelantados).
    Lo que no alcanza ni con eso es sin goce. */
-function splitPaid(days,free,start){const now=start?earnedFrom(start):0;let used=0;
+function splitPaid(days,free,start){start=null;const now=0;let used=0;
   return [...days].sort((a,b)=>a.k.localeCompare(b.k)).map(d=>{const v=dv(d.p),cap=free+(start?earnedAt(start,d.k)-now:0);
     const paid=Math.max(0,Math.min(v,cap-used)),nowPaid=Math.max(0,Math.min(paid,free-used));used+=paid;return{...d,unpaid:v-paid,adv:paid-nowPaid}})}
 const advOf=r=>r.days.reduce((s,d)=>s+(+d.adv||0),0);
@@ -555,15 +555,15 @@ function renderPick(){
   const el=document.getElementById('pick');if(!el)return;
   const u=me(),b=bal(u.id),boss=who(u.boss);
   const days=[...V.sel].map(([k,p])=>({k,p})).sort((a,c)=>a.k.localeCompare(c.k));
-  if(!days.length){el.innerHTML=`<h2>Pedir vacaciones</h2><p class="muted small" style="margin:0">Elige los días en el calendario. Luego puedes cambiar cualquier día a medio día: mañana (8 a 12) o tarde (1 a 5).</p><p class="note">Hoy tienes ${dias(Math.max(0,b.free))} libres. Si pides fechas más adelante, también cuentan los días que vas a ganar antes de esas fechas (1 por mes).</p>`;return}
-  const t=total(days),sp=splitPaid(days,b.free,u.start),unpaid=sp.reduce((a,d)=>a+d.unpaid,0),adv=sp.reduce((a,d)=>a+d.adv,0),after=b.free-(t-unpaid);
+  if(!days.length){el.innerHTML=`<h2>Pedir vacaciones</h2><p class="muted small" style="margin:0">Elige los días en el calendario. Luego puedes cambiar cualquier día a medio día: mañana (8 a 12) o tarde (1 a 5).</p><p class="note">Puedes pedir hasta ${dias(Math.max(0,b.free))}.</p>`;return}
+  const t=total(days),sp=splitPaid(days,b.free,u.start),unpaid=sp.reduce((a,d)=>a+d.unpaid,0),adv=sp.reduce((a,d)=>a+d.adv,0),after=Math.max(0,b.free)-(t-unpaid);
   const upd=sp.filter(d=>d.unpaid>0);
   el.innerHTML=`<div class="bar" style="margin:0"><h2 style="margin:0">Pedir vacaciones</h2><button class="lnk" data-act="clear">Quitar todo</button></div>
   <ul class="pick">${sp.map(d=>`<li><span class="d">${fD(d.k)}${d.adv?` <span class="tagx adv">${d.adv<dv(d.p)?'½ ':''}adelantado</span>`:''}${d.unpaid?` <span class="tagx">${d.unpaid<dv(d.p)?'½ ':''}sin goce</span>`:''}</span><div class="seg" role="radiogroup">${PARTS.map(([v,l])=>`<button type="button" role="radio" aria-checked="${v===d.p}" data-part="${d.k}" data-v="${v}">${l}</button>`).join('')}</div><button class="x" data-act="rm" data-k="${d.k}" aria-label="Quitar">×</button></li>`).join('')}</ul>
   <div class="sum"><span>Total</span><strong>${dias(t)}</strong></div>
-  <div class="sum" style="margin:0;padding-top:0;border:0"><span>Te quedarían hoy</span><strong>${dias(after)}</strong></div>
+  <div class="sum" style="margin:0;padding-top:0;border:0"><span>Te quedarían</span><strong>${dias(after)}</strong></div>
   ${adv?`<p class="warn soft adv"><strong>${dias(adv)} por adelantado.</strong> Hoy no te alcanzan, pero los vas a ganar antes de esas fechas. Quedas al día el ${fD(coverDate(u,-after))}. Tu jefatura y RH lo verán en la solicitud y en el correo.</p>`:''}
-  ${unpaid?`<p class="warn soft">${`Ni contando los días que ganarás antes de esas fechas te alcanzan${b.pending?` (tienes ${dias(b.pending)} en aprobación)`:''}.`} ${upd.length===1?'El siguiente día contará':'Los siguientes '+dias(unpaid)+' contarán'} como <strong>vacaciones sin goce de salario</strong>: ${upd.map(d=>fD(d.k)+(d.unpaid<dv(d.p)?' (medio día)':'')).join(', ')}.</p>`:''}
+  ${unpaid?`<p class="warn soft">${b.free>0?`Solo te alcanzan ${dias(b.free)}${b.pending?` (tienes ${dias(b.pending)} en aprobación)`:''}.`:'No te quedan días disponibles.'} ${upd.length===1?'El siguiente día contará':'Los siguientes '+dias(unpaid)+' contarán'} como <strong>vacaciones sin goce de salario</strong>: ${upd.map(d=>fD(d.k)+(d.unpaid<dv(d.p)?' (medio día)':'')).join(', ')}.</p>`:''}
   <label class="f" style="margin-top:4px"><span>Nota para tu jefatura (opcional)</span><input id="vnote" value="${esc(V.vnote)}" placeholder="Ej.: viaje familiar"></label>
   <button class="btn primary wide" data-act="sendVac">${unpaid?'Enviar con días sin goce':'Enviar solicitud'}</button>
   <p class="note">${u.boss?(u.role==='rh'?`La aprueba ${esc(boss?.name||'tu jefatura')}.`:`La aprueba ${esc(boss?.name||'tu jefatura')} y luego RH.`):'La aprueba RH.'} Te llegará el resultado por Teams.</p>`;
@@ -648,7 +648,7 @@ function vMis(){
 function vAprob(){
   const u=me(),q=queue(),team=S.people.filter(p=>p.boss===u.id);
   const row=x=>{const e=who(x.emp),isV=x.id[0]==='V';
-    const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)} hoy.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${fD(x.repK)} a las ${fT(x.repStart)}`;
+    const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)}.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${fD(x.repK)} a las ${fT(x.repStart)}`;
     const extra=(x.status==='rh'&&e.boss?` Aprobado por ${esc(who(e.boss)?.name)}.`:'')+(isV&&advOf(x)?` <span class="tagx adv">${dias(advOf(x))} por adelantado (los gana antes de esas fechas)</span>`:'')+(isV&&x.unpaid?` <span class="tagx">Incluye ${dias(x.unpaid)} sin goce de salario</span>`:'');
     const cl=isV?clashes(x):[];
     const acts=`<a class="btn sm primary" href="${CONFIG.teamsAprobaciones}" target="_blank" rel="noopener">Abrir en Teams</a>`,_old=V.rejecting===x.id?`<input id="why" placeholder="Motivo (opcional)"><button class="btn sm" data-act="noCancel">Volver</button><button class="btn sm danger" data-act="noOk" data-id="${x.id}">Rechazar</button>`
@@ -850,7 +850,7 @@ async function downloadExcel(){
   const ppl=[...S.all].sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||a.name.localeCompare(b.name));
   const saldos=ppl.map(p=>{const b=bal(p.id),sg=S.reqs.filter(r=>r.emp===p.id&&r.status==='ok').reduce((s,r)=>s+(r.unpaid||0),0);
     return{'Nombre':p.name,'Correo':p.email,'Empresa':p.company||'','Número de empleado':p.empNo||'','Unidad operativa':p.unit||'','Departamento':p.dept||'','Perfil':ROLE_OUT[p.role]||'','Jefatura':who(p.boss)?.name||p.boss||'','Activo':p.active?'Sí':'No',
-      'Fecha de ingreso':xd(p.start),'Días ganados':b.earned,'Días tomados':b.taken,'En aprobación':b.pending,'Disponibles':b.avail,'Días adelantados':Math.max(0,-b.avail),'Días sin goce (aprobados)':sg,'Horas por reponer':owed(p.id)}});
+      'Fecha de ingreso':xd(p.start),'Días ganados':b.earned,'Días tomados':b.taken,'En aprobación':b.pending,'Disponibles':b.avail,'Días sin goce (aprobados)':sg,'Horas por reponer':owed(p.id)}});
   const vac=[];
   S.reqs.filter(r=>r.status!=='no'&&r.status!=='cancel').forEach(r=>{const p=who(r.emp);const days=[...r.days].sort((a,b)=>a.k.localeCompare(b.k));
     let paidLeft=total(days)-(r.unpaid||0);
@@ -861,7 +861,7 @@ async function downloadExcel(){
     'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.repK),'Hora reposición':`${hhmm(x.repStart)} a ${hhmm(x.repStart+x.hours)}`,'Repuesto':x.repaid?'Sí':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
   const wb=XLSX.utils.book_new();
   const add=(rows,name,cols)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cols.map(c=>[c,'']))],{header:cols,dateNF:'dd/mm/yyyy'});ws['!cols']=cols.map(c=>({wch:Math.max(12,c.length+2,...rows.slice(0,200).map(r=>String(r[c]??'').length+1))}));XLSX.utils.book_append_sheet(wb,ws,name)};
-  add(saldos,'Saldos',['Nombre','Correo','Empresa','Número de empleado','Unidad operativa','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días adelantados','Días sin goce (aprobados)','Horas por reponer']);
+  add(saldos,'Saldos',['Nombre','Correo','Empresa','Número de empleado','Unidad operativa','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días sin goce (aprobados)','Horas por reponer']);
   add(vac,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
   add(perm,'Permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
   XLSX.writeFile(wb,`Vacaciones y permisos ${TK}.xlsx`);toast('Excel descargado.');
