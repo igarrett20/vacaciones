@@ -134,6 +134,9 @@ h2{font-size:17px;margin:0 0 12px}
 .tagx.adv{color:var(--brand);background:var(--brand-soft)}
 .warn.soft.adv{background:var(--brand-soft);color:var(--ink);border-color:var(--brand)}
 .neg{color:var(--danger)}
+.xrange{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.xrange label{display:flex;align-items:center;gap:6px}
+.xrange input{width:auto;padding:5px 8px;font-size:13px}
 .pill.cancel{background:var(--sunk);color:var(--muted)}
 .filters{display:flex;flex-direction:column;gap:8px;margin:4px 0 14px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -313,7 +316,7 @@ const SCOPES=['User.Read','Sites.ReadWrite.All'];
 let S={people:[],reqs:[],perms:[],hol:{}};
 const V={user:null,tab:'vac',exporting:false,importing:false,team:'team',picker:null,pm:null,
   rm:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),month:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),
-  sel:new Map(),mf:{t:'all',e:'all',n:10},rejecting:null,person:null,adding:false,showInactive:false,vnote:'',
+  sel:new Map(),mf:{t:'all',e:'all',n:10},xf:{a:K(new Date(TODAY.getFullYear(),TODAY.getMonth(),1)),b:K(new Date(TODAY.getFullYear(),TODAY.getMonth()+1,0))},rejecting:null,person:null,adding:false,showInactive:false,vnote:'',
   pf:{k:biz(3),start:10,hours:1,motive:'Trámite personal',repK:biz(5),repStart:17}};
 const G={pca:null,account:null,me:null,siteId:null,listIds:{},pcols:new Set(),loadedAt:0};
 let busy=false;
@@ -714,7 +717,7 @@ function vRes(){
     ks.forEach(k=>{if(isBday(p.id,k))out.push({p,label:`${fD(k)}, cumpleaños`,t:null,pend:false})})});
   out.sort((a,b)=>(a.p.dept||'').localeCompare(b.p.dept||'')||a.p.name.localeCompare(b.p.name));
   const atStart=false;
-  return `<div class="cal-head"><h2>${cap(mF.format(m).replace(' de ',' '))}</h2><div class="cal-tools"><button class="btn sm" data-act="excel">Descargar Excel</button><div class="arrows">
+  return `<div class="cal-head"><h2>${cap(mF.format(m).replace(' de ',' '))}</h2><div class="cal-tools"><div class="xrange"><label>Del <input type="date" id="xFrom" value="${V.xf.a}"></label><label>al <input type="date" id="xTo" value="${V.xf.b}"></label><button class="btn sm" data-act="excel">Descargar Excel</button></div><div class="arrows">
     <button class="arrow" data-act="rprev" aria-label="Mes anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></button>
     <button class="arrow" data-act="rnext" aria-label="Mes siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></button></div></div></div>
   <div class="tbl"><table class="tl"><thead><tr><th class="nm">Persona</th>${ks.map(k=>`<th class="${isWk(k)?'wk':''} ${S.hol[k]?'hl':''}">${L[P(k).getDay()]}<br>${+k.slice(8)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
@@ -845,7 +848,27 @@ function loadXLSX(){return window.XLSX?Promise.resolve():new Promise((ok,no)=>{c
 const ESTADO_TXT={jefatura:'Con jefatura',rh:'Con RH',ok:'Aprobada',no:'Rechazada',cancel:'Cancelada'};
 const PARTE_TXT={full:'Día completo',am:'Mañana (8 a 12)',pm:'Tarde (1 a 5)'};
 const xd=k=>k?new Date(k+'T12:00:00'):'';
-async function downloadExcel(){
+/* Hojas para planilla: una fila por solicitud aprobada, en el orden en que se pidieron, solo con los días dentro del periodo */
+const empNoX=p=>{const s=String(p?.empNo||'').trim();return /^\d+$/.test(s)?+s:s};
+const unitX=p=>{const s=String(p?.unit||'').trim();return /^\d+$/.test(s)?s.padStart(3,'0'):s};
+function descDays(ds){const by=[];ds.forEach(d=>{const [y,m,dd]=d.k.split('-').map(Number),lab=String(dd)+(d.p==='am'?' (mañana)':d.p==='pm'?' (tarde)':'');const g=by.at(-1);if(g&&g.m===m&&g.y===y)g.d.push(lab);else by.push({y,m,d:[lab]})});
+  return by.map(g=>`${g.d.join('-')} ${MESES[g.m-1]}`).join(' y ')}
+function payrollSheets(a,b){
+  const load=new Date(TK+'T12:00:00'),inP=k=>k>=a&&k<=b;
+  const base=(p,first,n,val,desc)=>({'Empleado':empNoX(p),'Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':load,'Valor':val,'Campo total dias':'','Descripcion':desc});
+  const vac=[],sin=[],con=[];
+  S.reqs.filter(r=>r.status==='ok').sort((x,y)=>x.created-y.created).forEach(r=>{const p=who(r.emp);
+    let paidLeft=total(r.days)-(r.unpaid||0);const paidD=[],unpD=[];
+    [...r.days].sort((x,y)=>x.k.localeCompare(y.k)).forEach(d=>{const v=dv(d.p),pd=Math.max(0,Math.min(v,paidLeft));paidLeft-=pd;
+      if(!inP(d.k))return;if(pd>0)paidD.push({k:d.k,p:pd<1&&d.p==='full'?'am':d.p,v:pd});if(v-pd>0)unpD.push({k:d.k,p:v-pd<1&&d.p==='full'?'pm':d.p,v:v-pd})});
+    const sum=l=>l.reduce((s,d)=>s+d.v,0);
+    if(paidD.length){const n=sum(paidD);vac.push(base(p,paidD[0].k,n,'HR_VACACION',`Disfrute de ${dias(n)} de vacaciones: ${descDays(paidD)}`))}
+    if(unpD.length){const n=sum(unpD);sin.push(base(p,unpD[0].k,n,'HR_PER_SIN',`Permiso sin goce de salario ${dias(n)}: ${descDays(unpD)}`))}});
+  S.perms.filter(x=>x.status==='ok'&&inP(x.k)).sort((x,y)=>x.created-y.created).forEach(x=>{const p=who(x.emp);
+    con.push(base(p,x.k,Math.round(x.hours/8*1000)/1000,'HR_PER_CON',`Permiso con goce de salario ${descDays([{k:x.k,p:'full'}])}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.hours} h)`))});
+  return{vac,con,sin};
+}
+async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
   try{toast('Preparando Excel…');await loadXLSX()}catch(e){toast(e.message);return}
   const ppl=[...S.all].sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||a.name.localeCompare(b.name));
   const saldos=ppl.map(p=>{const b=bal(p.id),sg=S.reqs.filter(r=>r.emp===p.id&&r.status==='ok').reduce((s,r)=>s+(r.unpaid||0),0);
@@ -859,12 +882,15 @@ async function downloadExcel(){
   vac.sort((a,b)=>a.Fecha-b.Fecha||a.Nombre.localeCompare(b.Nombre));
   const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),
     'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.repK),'Hora reposición':`${hhmm(x.repStart)} a ${hhmm(x.repStart+x.hours)}`,'Repuesto':x.repaid?'Sí':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
+  const vacD=vac.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b}),permD=perm.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b});
+  const pl=payrollSheets(a,b),PCOL=['Empleado','Unidad Operativa','Rige desde','Dias','Afecta planilla','Valor','Campo total dias','Descripcion'];
   const wb=XLSX.utils.book_new();
   const add=(rows,name,cols)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cols.map(c=>[c,'']))],{header:cols,dateNF:'dd/mm/yyyy'});ws['!cols']=cols.map(c=>({wch:Math.max(12,c.length+2,...rows.slice(0,200).map(r=>String(r[c]??'').length+1))}));XLSX.utils.book_append_sheet(wb,ws,name)};
+  add(pl.vac,'Vacaciones',PCOL);add(pl.con,'Permisos con goce',PCOL);add(pl.sin,'Permisos sin goce',PCOL);
   add(saldos,'Saldos',['Nombre','Correo','Empresa','Número de empleado','Unidad operativa','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días sin goce (aprobados)','Horas por reponer']);
-  add(vac,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
-  add(perm,'Permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
-  XLSX.writeFile(wb,`Vacaciones y permisos ${TK}.xlsx`);toast('Excel descargado.');
+  add(vacD,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
+  add(permD,'Detalle permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
+  XLSX.writeFile(wb,`Planilla vacaciones y permisos ${a} a ${b}.xlsx`);toast('Excel descargado.');
 }
 
 /* ---------- Saldo al cargar una persona: RH puede poner "disponibles hoy" o "ya tomados" ---------- */
@@ -922,7 +948,7 @@ document.addEventListener('click',e=>{
   const a=e.target.closest('[data-act]');if(!a)return;
   const act_=a.dataset.act,id=a.dataset.id,emp=a.dataset.emp,val=s=>document.getElementById(s)?.value;
   switch(act_){
-    case'excel':downloadExcel();break;
+    case'excel':{const a1=val('xFrom'),b1=val('xTo');if(!a1||!b1){toast('Elige el periodo: fecha inicial y final.');return}if(b1<a1){toast('La fecha final debe ser después de la inicial.');return}V.xf={a:a1,b:b1};downloadExcel(a1,b1);break}
     case'mfMore':V.mf.n+=10;render();break;
     case'rprev':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()-1,1);render();break;
     case'rnext':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()+1,1);render();break;
