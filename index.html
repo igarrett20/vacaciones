@@ -131,6 +131,16 @@ h2{font-size:17px;margin:0 0 12px}
 .pill.jefatura,.pill.rh{background:var(--pend-soft);color:var(--pend)}
 .pill.ok{background:var(--brand-soft);color:var(--brand)}
 .pill.no{background:var(--danger-soft);color:var(--danger)}
+.pill.cancel{background:var(--sunk);color:var(--muted)}
+.filters{display:flex;flex-direction:column;gap:8px;margin:4px 0 14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;border:1px solid var(--line-strong);background:#fff;border-radius:999px;padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.chip b{font-weight:700;margin-left:2px;opacity:.75}
+.chip:hover{border-color:var(--brand)}
+.chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:#fff}
+.kind{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:5px;padding:1px 6px;margin-right:8px;vertical-align:1px}
+.kind.v{background:var(--brand-soft);color:var(--brand)}
+.kind.p{background:var(--sunk);color:var(--muted);border:1px solid var(--line)}
 .acts{display:flex;gap:8px;align-items:center}
 .acts input{width:190px}
 
@@ -300,7 +310,7 @@ const SCOPES=['User.Read','Sites.ReadWrite.All'];
 let S={people:[],reqs:[],perms:[],hol:{}};
 const V={user:null,tab:'vac',exporting:false,importing:false,team:'team',picker:null,pm:null,
   rm:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),month:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),
-  sel:new Map(),rejecting:null,person:null,adding:false,showInactive:false,vnote:'',
+  sel:new Map(),mf:{t:'all',e:'all',n:10},rejecting:null,person:null,adding:false,showInactive:false,vnote:'',
   pf:{k:biz(3),start:10,hours:1,motive:'Trámite personal',repK:biz(5),repStart:17}};
 const G={pca:null,account:null,me:null,siteId:null,listIds:{},loadedAt:0};
 let busy=false;
@@ -397,15 +407,17 @@ const who=id=>(S.all||[]).find(p=>p.id===id);
 const me=()=>S.people.find(p=>p.id===V.user);
 const dv=p=>p==='full'?1:.5;
 const total=d=>d.reduce((s,x)=>s+dv(x.p),0);
-/* Acumulación: medio día por cada 15 días naturales desde la fecha de ingreso */
-const PERIODO=15,POR_PERIODO=0.5;
-const daysSince=start=>Math.max(0,Math.round((TODAY-P(start))/864e5));
-const periods=start=>Math.floor(daysSince(start)/PERIODO);
-function nextAccrual(start){return addD(start,(periods(start)+1)*PERIODO)}
+/* Acumulación: 1 día por cada mes cumplido desde la fecha de ingreso (ej.: entra el 16 de octubre, gana 1 día el 16 de noviembre, otro el 16 de diciembre...).
+   Si el mes no tiene ese día (31, 30, 29), se gana el último día del mes. */
+const POR_MES=1;
+function monthiv(start,n){const s=P(start),y=s.getFullYear(),mo=s.getMonth()+n,dim=new Date(y,mo+1,0).getDate();return new Date(y,mo,Math.min(s.getDate(),dim))}
+function accMonths(start,ref){ref=ref||TODAY;const s=P(start);let n=(ref.getFullYear()-s.getFullYear())*12+ref.getMonth()-s.getMonth();if(n>0&&monthiv(start,n)>ref)n--;return Math.max(0,n)}
+const earnedFrom=start=>accMonths(start)*POR_MES;
+function nextAccrual(start){return K(monthiv(start,accMonths(start)+1))}
 function bal(id){
   const p=who(id);let ap=0,pe=0;
   S.reqs.forEach(r=>{if(r.emp!==id)return;const t=total(r.days)-(r.unpaid||0);if(r.status==='ok')ap+=t;else if(live(r.status))pe+=t});
-  const earned=periods(p.start)*POR_PERIODO;const avail=earned-p.prior-ap;
+  const earned=earnedFrom(p.start);const avail=earned-p.prior-ap;
   return{earned,taken:p.prior+ap,pending:pe,avail,free:avail-pe};
 }
 const owedL=id=>S.perms.filter(x=>x.emp===id&&x.status==='ok'&&!x.repaid).sort((a,b)=>a.repK.localeCompare(b.repK));
@@ -451,7 +463,7 @@ function queue(){const u=me();return [...S.reqs,...S.perms].filter(x=>{const e=w
 
 /* ---------- Views ---------- */
 const app=document.getElementById('app');
-function tabs(){const u=me(),q=queue().length,t=[['vac','Vacaciones'],['perm','Permisos']];
+function tabs(){const u=me(),q=queue().length,t=[['vac','Vacaciones'],['perm','Permisos'],['mis','Mis solicitudes']];
   if(u.role==='jefe'||u.role==='rh'||q)t.push(['aprob','Por aprobar',q]);
   if(u.role==='rh')t.push(['res','Resumen'],['pers','Personal'],['fer','Feriados']);
   if(u.role==='conta')t.push(['res','Resumen']);return t}
@@ -460,13 +472,13 @@ function render(){
   const u=me(),b=bal(u.id),nv=nextVac(u.id),o=owed(u.id),ol=owedL(u.id)[0];
   app.innerHTML=`<h1>Hola, ${esc(firstName(u.name))}</h1>
   <div class="stats">
-    <div class="stat main"><span>Días disponibles</span><strong>${num(b.avail)}</strong><small>Ganas medio día más el ${fD(nextAccrual(u.start))}</small></div>
+    <div class="stat main"><span>Días disponibles</span><strong>${num(b.avail)}</strong><small>Ganas 1 día más el ${fD(nextAccrual(u.start))}</small></div>
     <div class="stat"><span>Próximas vacaciones</span><strong>${nv?nv.label:'Ninguna'}</strong><small>${nv?dias(nv.t):'Aún no tienes días aprobados'}</small></div>
     <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?`Repones el ${fD(ol.repK)}, ${fT(ol.repStart)}`:'Estás al día'}</small></div>
   </div>
   ${alertHTML(u,b)}
   <nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.tab===id}" data-tab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>
-  <div id="view">${({vac:vVac,perm:vPerm,aprob:vAprob,res:vRes,pers:vPers,fer:vFer})[V.tab]()}</div>`;
+  <div id="view">${({vac:vVac,perm:vPerm,mis:vMis,aprob:vAprob,res:vRes,pers:vPers,fer:vFer})[V.tab]()}</div>`;
   if(V.tab==='vac'){paint();renderPick()}
 }
 
@@ -486,7 +498,6 @@ function vVac(){
   let c='';for(let i=0;i<lead;i++)c+='<span></span>';
   for(let d=1;d<=dim;d++){const k=K(new Date(y,mo,d));c+=`<button type="button" class="day" data-k="${k}">${d}<em></em><span class="ppl"></span></button>`}
   const atStart=y===TODAY.getFullYear()&&mo===TODAY.getMonth();
-  const mine=S.reqs.filter(r=>r.emp===u.id).sort((a,b)=>b.created-a.created);
   return `<div class="vac">
     <div>
       <div class="cal-head"><h2>${cap(mF.format(m).replace(' de ',' '))}</h2><div class="cal-tools">${teamOptions()?`<label class="who"><span>Ver también</span><select id="teamView">${teamOptions()}</select></label>`:''}<div class="arrows">
@@ -500,9 +511,7 @@ function vVac(){
     </div>
     <div class="box" id="pick"></div>
   </div>
-  <div class="section"><h2>Mis solicitudes</h2>
-    <ul class="rows">${mine.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}${r.unpaid?` <span class="tagx">${num(r.unpaid)} sin goce</span>`:''}</span><span class="pill ${r.status}">${STATUS[r.status]}</span>${u.role==='rh'&&(r.status==='jefatura'||r.status==='rh')?`<button class="lnk red" data-act="cancelReq" data-id="${r.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido vacaciones.</p></li>'}</ul>
-    ${mine.length&&u.role!=='rh'?'<p class="note">¿Necesitas cancelar o cambiar una solicitud? Avísale a tu jefatura o a RH.</p>':''}
+  ${pendBox('V')}
   </div>`;
 }
 function paint(){
@@ -549,8 +558,8 @@ function pCheck(f){
   if(!f.k||!f.repK)return[0,'Elige el día del permiso y el día en que lo repones.'];
   if(f.k<TK)return[0,'El permiso no puede ser en una fecha pasada.'];
   if(!isBiz(f.k))return[0,`El ${fD(f.k)} no es día laboral.`];
-  if(f.start<12&&f.start+f.hours>12||f.start+f.hours>17)return[0,'El permiso debe quedar dentro de la mañana (8 a 12) o de la tarde (1 a 5).'];
-  if(f.start>=12&&f.start<13)return[0,'Esa hora es el almuerzo. Elige otra hora de salida.'];
+  if(f.start+f.hours>24)return[0,'El permiso debe terminar el mismo día. Elige una hora más temprano.'];
+  if(f.repStart+f.hours>24)return[0,'La reposición debe terminar el mismo día. Elige una hora más temprano.'];
   if(f.motive==='Otro'&&!(f.other||'').trim())return[0,'Escribe una breve explicación del motivo.'];
   if(f.repK<f.k)return[0,'La reposición debe ser el mismo día del permiso o después.'];
   if(f.repK===f.k&&f.repStart<f.start+f.hours&&f.repStart+f.hours>f.start)return[0,'La reposición choca con el horario del permiso.'];
@@ -569,25 +578,53 @@ function dateField(field,val){
 }
 function vPerm(){
   const u=me(),f=V.pf,[ok,msg]=pCheck(f);
-  const mine=S.perms.filter(x=>x.emp===u.id).sort((a,b)=>b.created-a.created);
   return `<div class="perm">
   <div class="box">
     <h2>Pedir permiso</h2>
     <div class="two"><div class="f"><span>Día</span>${dateField('k',f.k)}</div>
-    <label class="f"><span>Sales a las</span><select data-pf="start">${tOpts(8,16,f.start)}</select></label></div>
+    <label class="f"><span>Sales a las</span><select data-pf="start">${tOpts(0,23.5,f.start)}</select></label></div>
     <div class="f"><span>Duración</span><div class="seg lg" role="radiogroup">${[1,2].map(h=>`<button type="button" role="radio" aria-checked="${f.hours===h}" data-hours="${h}">${h} ${h===1?'hora':'horas'}</button>`).join('')}</div></div>
     <label class="f"><span>Motivo</span><select data-pf="motive">${MOT.map(m=>`<option ${m===f.motive?'selected':''}>${m}</option>`).join('')}</select></label>
     ${f.motive==='Otro'?`<label class="f"><span>Explica el motivo</span><textarea data-pf="other" rows="3" placeholder="Cuéntale a tu jefatura para qué es el permiso" style="resize:vertical">${esc(f.other||'')}</textarea></label>`:''}
     <div class="two"><div class="f"><span>Repones el día</span>${dateField('repK',f.repK)}</div>
-    <label class="f"><span>Desde las</span><select data-pf="repStart">${tOpts(6,19,f.repStart)}</select></label></div>
+    <label class="f"><span>Desde las</span><select data-pf="repStart">${tOpts(0,23.5,f.repStart)}</select></label></div>
     <div class="preview ${ok?'':'bad'}" id="pprev">${msg}</div>
     <button class="btn primary wide" id="psend" data-act="sendPerm" ${ok?'':'disabled'}>Enviar permiso</button>
   </div>
-  <div><h2>Mis permisos</h2>
-    <ul class="rows">${mine.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${fT(x.start)}</strong><p>${x.motive}. Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?'. Ya repuesto':''}</p></div><span class="amt">${x.hours} h</span><span class="pill ${x.status}">${x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado')}</span>${u.role==='rh'&&(x.status==='jefatura'||x.status==='rh')?`<button class="lnk red" data-act="cancelPerm" data-id="${x.id}">Cancelar</button>`:''}</li>`).join('')||'<li><p class="empty">Aún no has pedido permisos.</p></li>'}</ul>
-    ${mine.length&&u.role!=='rh'?'<p class="note">¿Necesitas cancelar un permiso? Avísale a tu jefatura o a RH.</p>':''}
+  <div>${pendBox('P')}</div>
   </div></div>`;
 }
+
+/* Mis solicitudes (vacaciones y permisos, con filtros) */
+const isPend=s=>s==='jefatura'||s==='rh';
+const EST_F=[['all','Todas'],['pend','En aprobación'],['ok','Aprobadas'],['no','Rechazadas'],['cancel','Canceladas']];
+const matchEst=(x,e)=>e==='all'||(e==='pend'?isPend(x.status):x.status===e);
+function myItems(){const u=me();return [...S.reqs.filter(r=>r.emp===u.id),...S.perms.filter(x=>x.emp===u.id)]}
+const itemDate=x=>x.id[0]==='V'?([...x.days].sort((a,b)=>a.k.localeCompare(b.k))[0]?.k||''):x.k;
+function itemRow(x){const u=me(),isV=x.id[0]==='V';
+  const head=isV?summ(x.days):`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}`;
+  const sub=isV?statusText(x)+(x.note?` · ${esc(x.note)}`:''):`${esc(x.motive)} · Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?' · Ya repuesto':''}${x.status==='no'&&x.reason?' · Motivo: '+esc(x.reason):''}${isPend(x.status)?' · '+statusText(x):''}`;
+  const amt=isV?`${dias(total(x.days))}${x.unpaid?` <span class="tagx">${num(x.unpaid)} sin goce</span>`:''}`:`${x.hours} h`;
+  const pill=isV?STATUS[x.status]:(x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado').replace('Cancelada','Cancelado'));
+  const can=u.role==='rh'&&isPend(x.status)?`<button class="lnk red" data-act="${isV?'cancelReq':'cancelPerm'}" data-id="${x.id}">Cancelar</button>`:'';
+  return `<li><div class="main"><strong><span class="kind ${isV?'v':'p'}">${isV?'Vacaciones':'Permiso'}</span>${head}</strong><p>${sub}</p></div><span class="amt">${amt}</span><span class="pill ${x.status}">${pill}</span>${can}</li>`}
+function pendBox(t){const all=myItems().filter(x=>x.id[0]===t),pend=all.filter(x=>isPend(x.status)).sort((a,b)=>b.created-a.created);
+  const name=t==='V'?'vacaciones':'permisos';
+  return `<div class="section"><div class="bar"><h2>${t==='V'?'Solicitudes':'Permisos'} en aprobación</h2>${all.length?`<button class="btn sm" data-tab="mis" data-mft="${t}">Ver todas (${all.length})</button>`:''}</div>
+    <ul class="rows">${pend.map(itemRow).join('')||`<li><p class="empty">${all.length?`No tienes ${name} en aprobación.`:`Aún no has pedido ${name}.`}</p></li>`}</ul></div>`}
+function vMis(){
+  const u=me(),f=V.mf,all=myItems();
+  const byT=all.filter(x=>f.t==='all'||x.id[0]===f.t);
+  const list=byT.filter(x=>matchEst(x,f.e)).sort((a,b)=>f.e==='pend'?itemDate(a).localeCompare(itemDate(b)):b.created-a.created);
+  const cnt=e=>byT.filter(x=>matchEst(x,e)).length;
+  const btn=(attr,val,cur,label,c)=>`<button type="button" class="chip" aria-pressed="${val===cur}" data-${attr}="${val}">${label}${c!=null?` <b>${c}</b>`:''}</button>`;
+  const shown=list.slice(0,f.n);
+  return `<h2>Mis solicitudes</h2>
+  <div class="filters"><div class="chips">${[['all','Todo'],['V','Vacaciones'],['P','Permisos']].map(([k,l])=>btn('mft',k,f.t,l)).join('')}</div>
+  <div class="chips">${EST_F.map(([k,l])=>btn('mfe',k,f.e,l,cnt(k))).join('')}</div></div>
+  <ul class="rows">${shown.map(itemRow).join('')||'<li><p class="empty">No hay solicitudes con este filtro.</p></li>'}</ul>
+  ${list.length>shown.length?`<p style="text-align:center;margin-top:12px"><button class="btn sm" data-act="mfMore">Ver más (${list.length-shown.length})</button></p>`:''}
+  ${all.length&&u.role!=='rh'?'<p class="note">¿Necesitas cancelar o cambiar algo? Avísale a tu jefatura o a RH.</p>':''}`}
 
 /* Aprobaciones */
 function vAprob(){
@@ -640,7 +677,7 @@ function vPers(){
   ${ppl.map(p=>{const b=bal(p.id),o=owed(p.id);return `<tr><td><strong>${esc(p.name)}</strong></td><td>${ROLES[p.role]}</td><td>${esc(who(p.boss)?.name||'—')}</td><td>${fL(p.start)}</td><td>${fB(p.bday)}</td><td class="num ${b.avail>ACUM?'hi':''}">${num(b.avail)}</td><td class="num">${o?o+' h':'—'}</td><td style="white-space:nowrap"><button class="lnk" data-act="open" data-emp="${p.id}">Ver y editar</button>${p.id!==V.user?` &nbsp; <button class="lnk red" data-act="delPerson" data-emp="${p.id}">Desactivar</button>`:''}</td></tr>`}).join('')}
   </tbody></table></div>`}).join('')}
   ${inactive.length?`<p style="margin-top:22px"><button class="lnk" data-act="toggleInactive">${V.showInactive?'Ocultar':'Ver'} personas desactivadas (${inactive.length})</button></p>${V.showInactive?`<ul class="rows">${inactive.map(p=>`<li><div class="main"><strong>${esc(p.name)}</strong><p>${esc(p.email)}</p></div><button class="lnk" data-act="reactivate" data-emp="${p.id}">Reactivar</button></li>`).join('')}</ul>`:''}`:''}
-  <p class="note">Cada persona gana medio día por cada 15 días desde su fecha de ingreso. Al agregar a alguien puedes poner sus días disponibles hoy o los ya tomados; el otro número se calcula solo. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
+  <p class="note">Cada persona gana 1 día por cada mes cumplido desde su fecha de ingreso (si entró el 16 de octubre, gana 1 día el 16 de noviembre, otro el 16 de diciembre, y así). Al agregar a alguien puedes poner sus días disponibles hoy o los ya tomados; el otro número se calcula solo. El día del cumpleaños es libre y no se descuenta. "Desactivar" saca a la persona del sistema pero conserva su historial.</p>`;
 }
 function vRes(){
   const m=V.rm,y=m.getFullYear(),mo=m.getMonth(),dim=new Date(y,mo+1,0).getDate(),ks=Array.from({length:dim},(_,i)=>K(new Date(y,mo,i+1)));
@@ -680,7 +717,7 @@ function vPerson(p){
     ${bdayFields('e',p.bday)}
     <button class="btn primary" data-act="savePerson" data-emp="${p.id}">Guardar cambios</button>
   </div>
-  <div class="calc">${periods(p.start)} periodos de 15 días desde el ${fL(p.start)} = <strong>${dias(b.earned)} ganados</strong>. Menos ${num(b.taken)} tomados = <strong>${dias(b.avail)} disponibles</strong>${b.pending?`, con ${dias(b.pending)} en aprobación`:''}.</div>
+  <div class="calc">${accMonths(p.start)} ${accMonths(p.start)===1?'mes cumplido':'meses cumplidos'} desde el ${fL(p.start)} = <strong>${dias(b.earned)} ganados</strong>. Menos ${num(b.taken)} tomados = <strong>${dias(b.avail)} disponibles</strong>${b.pending?`, con ${dias(b.pending)} en aprobación`:''}.</div>
   <div class="bar"><h2>Vacaciones</h2></div>
   <div class="formrow" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
     <label class="f"><span>Registrar un día tomado</span><input type="date" id="aDay"></label>
@@ -767,7 +804,7 @@ function parseImport(txt){
   const rows=txt.split(/\r?\n/).map(l=>l.split('\t')).filter(r=>r.some(c=>c.trim()));
   let dispMode=false;if(rows.length&&/nombre/i.test(rows[0][0])){dispMode=/disponible/i.test(rows[0][7]||'');rows.shift()}
   const raw=rows.map(r=>({name:(r[0]||'').trim(),email:lc(r[1]),dept:(r[2]||'').trim(),role:ROLE_IN[(r[3]||'').trim()]||'colab',bossName:(r[4]||'').trim(),
-    start:parseDate(r[5])||TK,bday:parseBday(r[6]),prior:parseFloat(String(r[7]||'0').replace(',','.'))||0})).map(x=>dispMode?{...x,prior:periods(x.start)*POR_PERIODO-x.prior}:x);
+    start:parseDate(r[5])||TK,bday:parseBday(r[6]),prior:parseFloat(String(r[7]||'0').replace(',','.'))||0})).map(x=>dispMode?{...x,prior:earnedFrom(x.start)-x.prior}:x);
   const byName=n=>{n=lc(n);return raw.find(x=>lc(x.name)===n)?.email||S.all.find(p=>lc(p.name)===n)?.email||''};
   return raw.map(x=>({...x,boss:x.bossName?byName(x.bossName):'',skip:!x.email?'sin correo':S.all.some(p=>p.email===x.email)?'ya existe':''}));
 }
@@ -810,7 +847,7 @@ function daysField(pre,p){
 function calcParts(pre,p){
   const g=id=>document.getElementById(id);
   const start=g(pre+'Start')?.value||p?.start||TK,mode=g(pre+'Mode')?.value||'disp',raw=g(pre+'Days')?.value;
-  const earned=periods(start)*POR_PERIODO,ap=apInSystem(p);
+  const earned=earnedFrom(start),ap=apInSystem(p);
   if(raw===''||raw==null)return{earned,ap,prior:p?p.prior:0,avail:earned-(p?p.prior:0)-ap,empty:true};
   const n=parseFloat(String(raw).replace(',','.'))||0;
   const prior=mode==='tom'?n:earned-n-ap;
@@ -846,6 +883,8 @@ document.addEventListener('click',e=>{
   if(V.picker&&!e.target.closest('.pop')){V.picker=null;render()}
   const day=e.target.closest('.day[data-k]');
   if(day){if(e.detail===0&&canPick(day.dataset.k)){const k=day.dataset.k;V.sel.has(k)?V.sel.delete(k):V.sel.set(k,'full');paint();renderPick()}return}
+  const mft=e.target.closest('[data-mft]');if(mft){V.mf.t=mft.dataset.mft;V.mf.n=10;if(!mft.dataset.tab){render();return}V.mf.e='all'}
+  const mfe=e.target.closest('[data-mfe]');if(mfe){V.mf.e=mfe.dataset.mfe;V.mf.n=10;render();return}
   const t=e.target.closest('[data-tab]');if(t){V.tab=t.dataset.tab;V.rejecting=null;V.person=null;render();return}
   const pt=e.target.closest('[data-part]');if(pt){V.sel.set(pt.dataset.part,pt.dataset.v);paint();renderPick();return}
   const hb=e.target.closest('[data-hours]');if(hb){V.pf.hours=+hb.dataset.hours;render();return}
@@ -853,6 +892,7 @@ document.addEventListener('click',e=>{
   const act_=a.dataset.act,id=a.dataset.id,emp=a.dataset.emp,val=s=>document.getElementById(s)?.value;
   switch(act_){
     case'excel':downloadExcel();break;
+    case'mfMore':V.mf.n+=10;render();break;
     case'rprev':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()-1,1);render();break;
     case'rnext':V.rm=new Date(V.rm.getFullYear(),V.rm.getMonth()+1,1);render();break;
     case'prev':V.month=new Date(V.month.getFullYear(),V.month.getMonth()-1,1);render();break;
