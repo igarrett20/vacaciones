@@ -857,16 +857,19 @@ const unitX=p=>{const s=String(p?.unit||'').trim();return /^\d+$/.test(s)?s.padS
 function descDays(ds){const by=[];ds.forEach(d=>{const [y,m,dd]=d.k.split('-').map(Number),lab=String(dd)+(d.p==='am'?' (mañana)':d.p==='pm'?' (tarde)':'');const g=by.at(-1);if(g&&g.m===m&&g.y===y)g.d.push(lab);else by.push({y,m,d:[lab]})});
   return by.map(g=>`${g.d.join('-')} ${MESES[g.m-1]}`).join(' y ')}
 function payrollSheets(a,b){
-  const load=new Date(TK+'T12:00:00'),inP=k=>k>=a&&k<=b;
-  const base=(p,first,n,val,desc)=>({_emp:empKey(p),'Empleado':empNoX(p),'Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':load,'Valor':val,'Campo total dias':'','Descripcion':desc});
+  const inP=k=>k>=a&&k<=b;
+  /* Corta los días en tramos seguidos: fines de semana, feriados y el cumpleaños de la persona no cortan el tramo */
+  const runs=(ds,emp)=>{const out=[];ds.forEach(d=>{const g=out.at(-1);let nx=g&&g.at(-1).k;if(nx){nx=addD(nx,1);while(nx<d.k&&(!isBiz(nx)||isBday(emp,nx)))nx=addD(nx,1)}
+    if(g&&nx===d.k)g.push(d);else out.push([d])});return out};
+  const base=(p,first,n,val,desc)=>({_emp:empKey(p),'Empleado':empNoX(p),'Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':xd(first),'Valor':val,'Campo total dias':'','Descripcion':desc});
   const vac=[],sin=[],con=[];
   S.reqs.filter(r=>r.status==='ok').sort((x,y)=>x.created-y.created).forEach(r=>{const p=who(r.emp);
     let paidLeft=total(r.days)-(r.unpaid||0);const paidD=[],unpD=[];
     [...r.days].sort((x,y)=>x.k.localeCompare(y.k)).forEach(d=>{const v=dv(d.p),pd=Math.max(0,Math.min(v,paidLeft));paidLeft-=pd;
       if(!inP(d.k))return;if(pd>0)paidD.push({k:d.k,p:pd<1&&d.p==='full'?'am':d.p,v:pd});if(v-pd>0)unpD.push({k:d.k,p:v-pd<1&&d.p==='full'?'pm':d.p,v:v-pd})});
     const sum=l=>l.reduce((s,d)=>s+d.v,0);
-    if(paidD.length){const n=sum(paidD);vac.push(base(p,paidD[0].k,n,'HR_VACACION',`Disfrute de ${dias(n)} de vacaciones: ${descDays(paidD)}`))}
-    if(unpD.length){const n=sum(unpD);sin.push(base(p,unpD[0].k,n,'HR_PER_SIN',`Permiso sin goce de salario ${dias(n)}: ${descDays(unpD)}`))}});
+    runs(paidD,r.emp).forEach(g=>{const n=sum(g);vac.push(base(p,g[0].k,n,'HR_VACACION',`Disfrute de ${dias(n)} de vacaciones: ${descDays(g)}`))});
+    runs(unpD,r.emp).forEach(g=>{const n=sum(g);sin.push(base(p,g[0].k,n,'HR_PER_SIN',`Permiso sin goce de salario ${dias(n)}: ${descDays(g)}`))})});
   S.perms.filter(x=>x.status==='ok'&&inP(x.k)).sort((x,y)=>x.created-y.created).forEach(x=>{const p=who(x.emp);
     con.push(base(p,x.k,Math.round(x.hours/8*1000)/1000,'HR_PER_CON',`Permiso con goce de salario ${descDays([{k:x.k,p:'full'}])}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.hours} h)`))});
   return{vac,con,sin};
