@@ -382,11 +382,13 @@ async function connect(){
     if(!f)throw new GraphError(404,`No encuentro la lista "${name}" en el sitio de Recursos Humanos.`);
     G.listIds[key]=f.id;
   }
+  /* Lista opcional donde la jefatura confirma reposiciones de permisos */
+  {const r=ls.find(l=>lc(l.displayName)==='reposiciones'||lc(l.name)==='reposiciones');if(r)G.listIds.reposiciones=r.id}
   /* Columnas opcionales de Personal (Empresa, NumeroEmpleado, UnidadOperativa): solo se guardan si existen en SharePoint */
   try{G.pcols=new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds.personal}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){G.pcols=new Set()}
 }
 async function loadAll(){
-  const [pe,so,pm,fe]=await Promise.all(['personal','solicitudes','permisos','feriados'].map(allItems));
+  const [pe,so,pm,fe,rp]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),G.listIds.reposiciones?allItems('reposiciones'):Promise.resolve([])]);
   const people=pe.map(i=>{const f=i.fields;return{
     spId:i.id,id:lc(f.Correo),email:lc(f.Correo),name:f.Title||'(sin nombre)',dept:f.Departamento||'',role:ROLE_IN[f.Perfil]||'colab',
     boss:lc(f.JefaturaCorreo)||null,start:rd(f.FechaIngreso)||TK,prior:+f.DiasPrevios||0,
@@ -396,11 +398,16 @@ async function loadAll(){
     if(!days.length&&f.Desde){let k=rd(f.Desde);const h=rd(f.Hasta)||k;while(k<=h){if(!isWk(k))days.push({k,p:'full'});k=addD(k,1)}}
     return{id:'V'+i.id,spId:i.id,emp:lc(f.EmpleadoCorreo),days,unpaid:+f.DiasSinGoce||0,note:f.Nota||'',status:EST_IN[f.Estado]||'jefatura',reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
   const perms=pm.map(i=>{const f=i.fields;return{id:'P'+i.id,spId:i.id,emp:lc(f.EmpleadoCorreo),k:rd(f.Fecha),start:fromHHMM(f.HoraSalida),hours:+f.Horas||1,motive:f.Motivo||'',
-    repK:rd(f.FechaReposicion),repStart:fromHHMM(f.HoraReposicion),status:EST_IN[f.Estado]||'jefatura',repaid:f.Repuesto===true,reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
+    repK:rd(f.FechaReposicion),repStart:fromHHMM(f.HoraReposicion),status:EST_IN[f.Estado]||'jefatura',repaid:f.Repuesto===true,boss:lc(f.JefaturaCorreo)||null,reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
   const hol={},holIds={};fe.forEach(i=>{const k=rd(i.fields.Fecha);if(k){hol[k]=i.fields.Title||'Feriado';holIds[k]=i.id}});
   S={people,reqs,perms,hol,holIds,all:people};
   S.people=people.filter(p=>p.active);
+  /* Reposiciones: cuenta como repuesto si lo confirmó su jefatura (o RH si la persona no tiene jefatura).
+     Se valida con quien CREÓ la confirmación en SharePoint, no con lo que diga el texto. */
+  const confs=rp.map(i=>({permId:String(i.fields.PermisoId??''),by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:rd(i.createdDateTime)}));
+  perms.forEach(x=>{const c=confs.find(c=>c.permId===String(x.spId)&&confOK(c,x));if(c){x.conf=c;x.repaid=true}});
   G.loadedAt=Date.now();
+  setTimeout(calSync,500);
 }
 
 /* Guarda algo en SharePoint, recarga y vuelve a pintar */
@@ -409,6 +416,57 @@ async function act(fn,okMsg){
   try{await fn();await loadAll();render();if(okMsg)toast(okMsg)}
   catch(e){console.error(e);if(e.message!=='redirect')toast(e.status===403?'No tienes permiso para hacer ese cambio en SharePoint.':'No se pudo guardar: '+(e.message||e))}
   finally{busy=false;document.body.classList.remove('busy')}
+}
+
+/* ---------- Calendario de Outlook/Teams de cada persona ----------
+   Con el permiso delegado Calendars.ReadWrite, la página pone en el calendario PROPIO de quien entra:
+   sus vacaciones aprobadas, su día libre de cumpleaños, y sus permisos aprobados (el permiso y la reposición).
+   Cada evento lleva una marca interna (clave) para no duplicarlo; si una solicitud se cancela o borra, se quita el evento. */
+const CAL={scopes:['Calendars.ReadWrite'],cat:'Vacaciones y permisos',tz:'Central America Standard Time',
+  prop:'String {6f1c2a4e-8b3d-4c7a-9e52-1d0b7a3f5c81} Name GGVacKey',running:false,off:false,sig:'',at:0};
+async function cx(tk,method,path,body){
+  const r=await fetch(path.startsWith('http')?path:'https://graph.microsoft.com/v1.0'+path,{method,headers:{Authorization:'Bearer '+tk,'Content-Type':'application/json',Prefer:`outlook.timezone="${CAL.tz}"`},body:body?JSON.stringify(body):undefined});
+  if(r.status===204)return null;const j=await r.json().catch(()=>null);
+  if(!r.ok)throw new GraphError(r.status,j?.error?.message||r.statusText);return j}
+const tAt=(k,t)=>t>=24?addD(k,1)+'T00:00:00':`${k}T${hhmm(t)}:00`;
+function calWanted(){
+  const u=me();if(!u)return[];const out=[];
+  S.reqs.filter(r=>r.emp===u.id&&r.status==='ok').forEach(r=>{
+    runsOf([...r.days].sort((a,b)=>a.k.localeCompare(b.k)),u.id).forEach(g=>{let blk=[];
+      const flush=()=>{if(!blk.length)return;const a=blk[0].k,b=blk.at(-1).k;
+        out.push({key:`V${r.spId}|${a}|${b}`,subject:'Vacaciones',start:a+'T00:00:00',end:addD(b,1)+'T00:00:00',allDay:true,showAs:'oof'});blk=[]};
+      g.forEach(d=>{if(d.p==='full'){blk.push(d);return}flush();const[h1,h2]=d.p==='am'?[8,12]:[13,17];
+        out.push({key:`V${r.spId}|${d.k}|${d.p}`,subject:`Vacaciones (${d.p==='am'?'mañana':'tarde'})`,start:tAt(d.k,h1),end:tAt(d.k,h2),allDay:false,showAs:'oof'})});
+      flush()})});
+  if(u.bday){const y=TODAY.getFullYear();for(const k of [`${y}-${u.bday}`,`${y+1}-${u.bday}`]){if(K(P(k))!==k||k<TK||!isBiz(k))continue;
+    out.push({key:`B|${k}`,subject:'Día libre por cumpleaños',start:k+'T00:00:00',end:addD(k,1)+'T00:00:00',allDay:true,showAs:'oof'});break}}
+  S.perms.filter(x=>x.emp===u.id&&x.status==='ok').forEach(x=>{
+    out.push({key:`P${x.spId}|${x.k}|${x.start}|${x.hours}`,subject:`Permiso (${x.hours} h)`,body:`Motivo: ${x.motive}. Repones el ${fD(x.repK)}, ${fT(x.repStart)} a ${fT(x.repStart+x.hours)}.`,start:tAt(x.k,x.start),end:tAt(x.k,x.start+x.hours),allDay:false,showAs:'oof'});
+    if(x.repK)out.push({key:`R${x.spId}|${x.repK}|${x.repStart}|${x.hours}`,subject:`Reposición de permiso (${x.hours} h)`,body:`Repones el permiso del ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}.`,start:tAt(x.repK,x.repStart),end:tAt(x.repK,x.repStart+x.hours),allDay:false,showAs:'busy'})});
+  return out.filter(e=>e.end>TK+'T00:00:00');
+}
+async function calSync(){
+  if(CAL.running||CAL.off||!me())return;
+  const want=calWanted(),sig=want.map(e=>e.key).sort().join(',');
+  if(sig===CAL.sig&&Date.now()-CAL.at<30*60e3)return;
+  CAL.running=true;
+  try{
+    let tk;try{tk=(await G.pca.acquireTokenSilent({scopes:CAL.scopes,account:G.account})).accessToken}
+    catch(e){CAL.off=true;console.info('Calendario: falta el permiso Calendars.ReadWrite (consentimiento de administrador).',e);return}
+    const wk=new Map(want.map(e=>[e.key,e])),have=new Set();
+    let url=`/me/events?$filter=${encodeURIComponent(`categories/any(c:c eq '${CAL.cat}')`)}&$select=id,end&$expand=${encodeURIComponent(`singleValueExtendedProperties($filter=id eq '${CAL.prop}')`)}&$top=200`;
+    while(url){const j=await cx(tk,'GET',url);
+      for(const e of j.value){const key=e.singleValueExtendedProperties?.[0]?.value;if(!key)continue;
+        if(wk.has(key)&&!have.has(key)){have.add(key);continue}
+        if((e.end?.dateTime||'')>TK+'T00:00:00')await cx(tk,'DELETE',`/me/events/${e.id}`)}
+      url=j['@odata.nextLink']||null}
+    for(const e of want){if(have.has(e.key))continue;
+      await cx(tk,'POST','/me/events',{subject:e.subject,body:{contentType:'text',content:(e.body?e.body+'\n\n':'')+'Agregado automáticamente por el sistema de vacaciones y permisos.'},
+        start:{dateTime:e.start,timeZone:CAL.tz},end:{dateTime:e.end,timeZone:CAL.tz},isAllDay:e.allDay,showAs:e.showAs,categories:[CAL.cat],
+        isReminderOn:false,responseRequested:false,singleValueExtendedProperties:[{id:CAL.prop,value:e.key}]})}
+    CAL.sig=sig;CAL.at=Date.now();
+  }catch(e){console.warn('Calendario: no se pudo sincronizar.',e)}
+  finally{CAL.running=false}
 }
 
 /* ---------- Model ---------- */
@@ -433,6 +491,17 @@ const owedL=id=>S.perms.filter(x=>x.emp===id&&x.status==='ok'&&!x.repaid).sort((
 const owed=id=>owedL(id).reduce((s,x)=>s+x.hours,0);
 function booked(id){const m=new Map();S.reqs.forEach(r=>{if(r.emp===id&&live(r.status))r.days.forEach(d=>m.set(d.k,{p:d.p,st:r.status}))});return m}
 const isBday=(id,k)=>{const p=who(id);return !!(p&&p.bday&&p.bday===k.slice(5)&&isBiz(k))};
+/* Corta días en tramos seguidos: fines de semana, feriados y el cumpleaños de la persona no cortan el tramo */
+const runsOf=(ds,emp)=>{const out=[];ds.forEach(d=>{const g=out.at(-1);let nx=g&&g.at(-1).k;if(nx){nx=addD(nx,1);while(nx<d.k&&(!isBiz(nx)||isBday(emp,nx)))nx=addD(nx,1)}
+  if(g&&nx===d.k)g.push(d);else out.push([d])});return out};
+/* Reposición de permisos: la confirma la jefatura (la del permiso o la actual); si no tiene jefatura, RH */
+const repBosses=x=>[x.boss,who(x.emp)?.boss].filter(Boolean);
+const confOK=(c,x)=>{const bs=repBosses(x);if(bs.length)return bs.includes(c.by)||(!c.by&&bs.some(b=>who(b)?.name===c.byName));
+  const p=who(c.by)||(S.all||[]).find(q=>q.name===c.byName);return !!(p&&p.role==='rh'&&p.id!==x.emp)};
+const repDue=x=>x.status==='ok'&&!x.repaid&&!!x.repK&&x.repK<=TK;
+const canConfirm=x=>{const u=me();if(!u||!repDue(x)||x.emp===u.id)return false;const bs=repBosses(x);return bs.length?bs.includes(u.id):u.role==='rh'};
+const toConfirm=()=>S.perms.filter(canConfirm).sort((a,b)=>a.repK.localeCompare(b.repK));
+const repWho=x=>{const b=repBosses(x)[0];return b?(who(b)?.name||'la jefatura'):'RH'};
 const canPick=k=>k>=TK&&isBiz(k)&&!booked(V.user).has(k)&&!isBday(V.user,k);
 /* Reparte una selección entre días pagados y sin goce (los últimos días son los sin goce) */
 /* Días que se ganan entre hoy y una fecha futura (1 por cada mes cumplido) */
@@ -483,7 +552,7 @@ function queue(){const u=me();return [...S.reqs,...S.perms].filter(x=>{const e=w
 
 /* ---------- Views ---------- */
 const app=document.getElementById('app');
-function tabs(){const u=me(),q=queue().length,t=[['vac','Vacaciones'],['perm','Permisos'],['mis','Mis solicitudes']];
+function tabs(){const u=me(),q=queue().length+toConfirm().length,t=[['vac','Vacaciones'],['perm','Permisos'],['mis','Mis solicitudes']];
   if(u.role==='jefe'||u.role==='rh'||q)t.push(['aprob','Por aprobar',q]);
   if(u.role==='rh')t.push(['res','Resumen'],['pers','Personal'],['fer','Feriados']);
   if(u.role==='conta')t.push(['res','Resumen']);return t}
@@ -494,7 +563,7 @@ function render(){
   <div class="stats">
     <div class="stat main"><span>Días disponibles</span><strong ${b.avail<0?'class="neg"':''}>${num(b.avail)}</strong><small>${b.avail<0?`Usaste ${dias(-b.avail)} por adelantado. Quedas al día el ${fD(coverDate(u,-b.avail))}`:`Ganas 1 día más el ${fD(nextAccrual(u.start))}`}</small></div>
     <div class="stat"><span>Próximas vacaciones</span><strong>${nv?nv.label:'Ninguna'}</strong><small>${nv?dias(nv.t):'Aún no tienes días aprobados'}</small></div>
-    <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?`Repones el ${fD(ol.repK)}, ${fT(ol.repStart)}`:'Estás al día'}</small></div>
+    <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?(ol.repK<=TK?`Falta que ${esc(repWho(ol))} confirme que repusiste`:`Repones el ${fD(ol.repK)}, ${fT(ol.repStart)}`):'Estás al día'}</small></div>
   </div>
   ${alertHTML(u,b)}
   <nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.tab===id}" data-tab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>
@@ -624,7 +693,7 @@ function myItems(){const u=me();return [...S.reqs.filter(r=>r.emp===u.id),...S.p
 const itemDate=x=>x.id[0]==='V'?([...x.days].sort((a,b)=>a.k.localeCompare(b.k))[0]?.k||''):x.k;
 function itemRow(x){const u=me(),isV=x.id[0]==='V';
   const head=isV?summ(x.days):`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}`;
-  const sub=isV?statusText(x)+(x.note?` · ${esc(x.note)}`:''):`${esc(x.motive)} · Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?' · Ya repuesto':''}${x.status==='no'&&x.reason?' · Motivo: '+esc(x.reason):''}${isPend(x.status)?' · '+statusText(x):''}`;
+  const sub=isV?statusText(x)+(x.note?` · ${esc(x.note)}`:''):`${esc(x.motive)} · Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?' · Ya repuesto':repDue(x)?` · Falta que ${esc(repWho(x))} confirme la reposición`:''}${x.status==='no'&&x.reason?' · Motivo: '+esc(x.reason):''}${isPend(x.status)?' · '+statusText(x):''}`;
   const amt=isV?`${dias(total(x.days))}${advOf(x)?` <span class="tagx adv">${num(advOf(x))} adelantado${advOf(x)>1?'s':''}</span>`:''}${x.unpaid?` <span class="tagx">${num(x.unpaid)} sin goce</span>`:''}`:`${x.hours} h`;
   const pill=isV?STATUS[x.status]:(x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado').replace('Cancelada','Cancelado'));
   const can=u.role==='rh'&&isPend(x.status)?`<button class="lnk red" data-act="${isV?'cancelReq':'cancelPerm'}" data-id="${x.id}">Cancelar</button>`:'';
@@ -649,7 +718,7 @@ function vMis(){
 
 /* Aprobaciones */
 function vAprob(){
-  const u=me(),q=queue(),team=S.people.filter(p=>p.boss===u.id);
+  const u=me(),q=queue(),rc=toConfirm(),team=S.people.filter(p=>p.boss===u.id);
   const row=x=>{const e=who(x.emp),isV=x.id[0]==='V';
     const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)}.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${fD(x.repK)} a las ${fT(x.repStart)}`;
     const extra=(x.status==='rh'&&e.boss?` Aprobado por ${esc(who(e.boss)?.name)}.`:'')+(isV&&advOf(x)?` <span class="tagx adv">${dias(advOf(x))} por adelantado (los gana antes de esas fechas)</span>`:'')+(isV&&x.unpaid?` <span class="tagx">Incluye ${dias(x.unpaid)} sin goce de salario</span>`:'');
@@ -658,8 +727,10 @@ function vAprob(){
       :`<button class="btn sm" data-act="no" data-id="${x.id}">Rechazar</button><button class="btn sm primary" data-act="yes" data-id="${x.id}">Aprobar</button>`;
     return `<li><div class="main"><strong>${esc(e.name)}, ${isV?'vacaciones':'permiso'}</strong><p>${det}${extra}</p>${cl.length?`<p class="clash">⚠ Esos días también sale: ${cl.map(esc).join('; ')}</p>`:''}</div><span class="amt">${isV?dias(total(x.days)):x.hours+' h'}</span><div class="acts">${acts}</div></li>`};
   return `<h2>Pendientes</h2><p class="note" style="margin:-6px 0 12px">Apruebas o rechazas desde la tarjeta que te llega en Teams (app Aprobaciones) o en tu correo. Aquí ves el detalle${u.role==='rh'?'':' y si choca con otras personas de tu equipo'}.</p><ul class="rows">${q.map(row).join('')||'<li><p class="empty">No tienes nada por aprobar.</p></li>'}</ul>
+  ${rc.length?`<div class="section"><h2>Reposiciones por confirmar</h2><p class="note" style="margin:-6px 0 12px">Confirma cuando la persona ya repuso el tiempo del permiso. Si todavía no lo ha repuesto, déjalo pendiente.</p><ul class="rows">${rc.map(x=>{const e=who(x.emp);
+    return `<li><div class="main"><strong>${esc(e.name)}, permiso de ${x.hours} h</strong><p>Permiso el ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${esc(x.motive)}). Tenía que reponer el ${fD(x.repK)}, ${fT(x.repStart)} a ${fT(x.repStart+x.hours)}.</p></div><span class="amt">${x.hours} h</span><div class="acts"><button class="btn sm primary" data-act="confirmRep" data-id="${x.id}">Sí, ya repuso</button></div></li>`}).join('')}</ul></div>`:''}
   ${team.length?`<div class="section"><h2>Mi equipo</h2><div class="tbl"><table><thead><tr><th>Persona</th><th class="num">Disponibles</th><th class="num">En aprobación</th><th>Próximas vacaciones</th><th class="num">Por reponer</th><th></th></tr></thead><tbody>
-  ${team.map(p=>{const b=bal(p.id),o=owed(p.id),nv=nextVac(p.id);return `<tr><td>${esc(p.name)}</td><td class="num ${b.avail>ACUM?'hi':b.avail<0?'neg':''}" title="${advText(p,b)}">${num(b.avail)}${b.avail<0?' <span class="tagx adv">adelantado</span>':''}</td><td class="num">${num(b.pending)}</td><td>${nv?nv.label:'—'}</td><td class="num">${o?o+' h':'—'}</td><td>${o&&u.role==='rh'?`<button class="lnk" data-act="repaid" data-emp="${p.id}">Marcar repuesto</button>`:''}</td></tr>`}).join('')}
+  ${team.map(p=>{const b=bal(p.id),o=owed(p.id),nv=nextVac(p.id);return `<tr><td>${esc(p.name)}</td><td class="num ${b.avail>ACUM?'hi':b.avail<0?'neg':''}" title="${advText(p,b)}">${num(b.avail)}${b.avail<0?' <span class="tagx adv">adelantado</span>':''}</td><td class="num">${num(b.pending)}</td><td>${nv?nv.label:'—'}</td><td class="num">${o?o+' h':'—'}</td><td></td></tr>`}).join('')}
   </tbody></table></div></div>`:''}`;
 }
 
@@ -755,7 +826,7 @@ function vPerson(p){
     <button class="btn" data-act="addDay" data-emp="${p.id}">${p.boss?'Registrar y enviar a la jefatura':'Registrar como aprobado'}</button>
   </div>
   <ul class="rows">${reqs.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}${advOf(r)?` <span class="tagx adv">${num(advOf(r))} adelantado${advOf(r)>1?'s':''}</span>`:''}${r.unpaid?` <span class="tagx">${num(r.unpaid)} sin goce</span>`:''}</span><span class="pill ${r.status}">${STATUS[r.status]}</span><button class="lnk red" data-act="delReq" data-id="${r.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin vacaciones registradas.</p></li>'}</ul>
-  <div class="section"><h2>Permisos</h2><ul class="rows">${perms.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${x.hours} h</strong><p>${x.motive}. Repone ${fD(x.repK)}${x.repaid?'. Ya repuesto':''}</p></div><span class="pill ${x.status}">${STATUS[x.status]}</span>${x.status==='ok'&&!x.repaid?`<button class="lnk" data-act="repaidOne" data-id="${x.id}">Marcar repuesto</button>`:''}<button class="lnk red" data-act="delPerm" data-id="${x.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin permisos.</p></li>'}</ul></div>`;
+  <div class="section"><h2>Permisos</h2><ul class="rows">${perms.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${x.hours} h</strong><p>${x.motive}. Repone ${fD(x.repK)}${x.conf?`. Repuesto, confirmado por ${esc(who(x.conf.by)?.name||x.conf.byName)} el ${fD(x.conf.at)}`:x.repaid?'. Ya repuesto':repDue(x)?`. Falta que ${esc(repWho(x))} confirme la reposición`:''}</p></div><span class="pill ${x.status}">${STATUS[x.status]}</span>${canConfirm(x)?`<button class="lnk" data-act="confirmRep" data-id="${x.id}">Sí, ya repuso</button>`:''}<button class="lnk red" data-act="delPerm" data-id="${x.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin permisos.</p></li>'}</ul></div>`;
 }
 function vFer(){
   const list=Object.entries(S.hol).sort((a,b)=>a[0].localeCompare(b[0])).filter(([k])=>k>=K(new Date(TODAY.getFullYear(),0,1)));
@@ -858,9 +929,6 @@ function descDays(ds){const by=[];ds.forEach(d=>{const [y,m,dd]=d.k.split('-').m
   return by.map(g=>`${g.d.join('-')} ${MESES[g.m-1]}`).join(' y ')}
 function payrollSheets(a,b){
   const inP=k=>k>=a&&k<=b;
-  /* Corta los días en tramos seguidos: fines de semana, feriados y el cumpleaños de la persona no cortan el tramo */
-  const runs=(ds,emp)=>{const out=[];ds.forEach(d=>{const g=out.at(-1);let nx=g&&g.at(-1).k;if(nx){nx=addD(nx,1);while(nx<d.k&&(!isBiz(nx)||isBday(emp,nx)))nx=addD(nx,1)}
-    if(g&&nx===d.k)g.push(d);else out.push([d])});return out};
   const base=(p,first,n,val,desc)=>({_emp:empKey(p),'Empleado':empNoX(p),'Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':xd(first),'Valor':val,'Campo total dias':'','Descripcion':desc});
   const vac=[],sin=[],con=[];
   S.reqs.filter(r=>r.status==='ok').sort((x,y)=>x.created-y.created).forEach(r=>{const p=who(r.emp);
@@ -868,8 +936,8 @@ function payrollSheets(a,b){
     [...r.days].sort((x,y)=>x.k.localeCompare(y.k)).forEach(d=>{const v=dv(d.p),pd=Math.max(0,Math.min(v,paidLeft));paidLeft-=pd;
       if(!inP(d.k))return;if(pd>0)paidD.push({k:d.k,p:pd<1&&d.p==='full'?'am':d.p,v:pd});if(v-pd>0)unpD.push({k:d.k,p:v-pd<1&&d.p==='full'?'pm':d.p,v:v-pd})});
     const sum=l=>l.reduce((s,d)=>s+d.v,0);
-    runs(paidD,r.emp).forEach(g=>{const n=sum(g);vac.push(base(p,g[0].k,n,'HR_VACACION',`Disfrute de ${dias(n)} de vacaciones: ${descDays(g)}`))});
-    runs(unpD,r.emp).forEach(g=>{const n=sum(g);sin.push(base(p,g[0].k,n,'HR_PER_SIN',`Permiso sin goce de salario ${dias(n)}: ${descDays(g)}`))})});
+    runsOf(paidD,r.emp).forEach(g=>{const n=sum(g);vac.push(base(p,g[0].k,n,'HR_VACACION',`Disfrute de ${dias(n)} de vacaciones: ${descDays(g)}`))});
+    runsOf(unpD,r.emp).forEach(g=>{const n=sum(g);sin.push(base(p,g[0].k,n,'HR_PER_SIN',`Permiso sin goce de salario ${dias(n)}: ${descDays(g)}`))})});
   S.perms.filter(x=>x.status==='ok'&&inP(x.k)).sort((x,y)=>x.created-y.created).forEach(x=>{const p=who(x.emp);
     con.push(base(p,x.k,Math.round(x.hours/8*1000)/1000,'HR_PER_CON',`Permiso con goce de salario ${descDays([{k:x.k,p:'full'}])}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.hours} h)`))});
   return{vac,con,sin};
@@ -985,8 +1053,8 @@ document.addEventListener('click',e=>{
     case'no':V.rejecting=id;render();document.getElementById('why')?.focus();break;
     case'noCancel':V.rejecting=null;render();break;
     case'noOk':decide(id,false,(val('why')||'').trim());break;
-    case'repaid':act(()=>Promise.all(owedL(emp).map(x=>setItem('permisos',x.spId,{Repuesto:true}))),`${who(emp).name} quedó al día.`);break;
-    case'repaidOne':act(()=>setItem('permisos',findX(id).spId,{Repuesto:true}),'Marcado como repuesto.');break;
+    case'confirmRep':{const x=findX(id);if(!x||!canConfirm(x))return;if(!G.listIds.reposiciones){toast('Falta crear la lista "Reposiciones" en SharePoint.');return}
+      if(!armed(a,'¿Confirmas? Toca otra vez'))return;act(()=>addItem('reposiciones',{Title:x.id,PermisoId:+x.spId}),`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
     case'exportToggle':V.exporting=!V.exporting;V.importing=false;render();break;
     case'importToggle':V.importing=!V.importing;V.exporting=false;render();break;
     case'importPreview':{V.importRows=parseImport(val('imp')||'');V.importText=val('imp')||'';render();break}
@@ -1087,6 +1155,7 @@ async function boot(){
   if(dr&&me().role==='rh'){V.tab=dr.tab||V.tab;V.adding=!!dr.adding;V.person=dr.person&&who(dr.person)?dr.person:null;V.importing=!!dr.importing}
   render();
   if(dr&&me().role==='rh'&&dr.ctx===draftCtx()){restoreForm(dr.vals);toast('Recuperamos lo que estabas escribiendo.')}
+  calSync();
 }
 boot();
 
