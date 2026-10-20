@@ -296,6 +296,26 @@ a.btn{text-decoration:none;display:inline-block}
 .wday li{display:flex;gap:6px;align-items:baseline}
 .wday li i{width:7px;height:7px;border-radius:2px;flex:none;transform:translateY(-1px)}
 .wday .none{color:var(--muted)}
+/* Detalle desplegable de reposiciones pendientes */
+.dmore{appearance:none;font:inherit;font-size:13px;font-weight:600;color:var(--brand);background:var(--brand-soft);border:0;border-radius:999px;padding:6px 12px;margin-top:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.dmore:hover{background:#D3E7EB}
+.dmore svg{width:14px;height:14px;transition:transform .35s ease}
+.dmore[aria-expanded="true"] svg{transform:rotate(180deg)}
+.repx{grid-column:1/-1;display:grid;grid-template-rows:0fr;opacity:0;margin-top:-14px;transition:grid-template-rows .5s cubic-bezier(.2,.7,.2,1),opacity .35s ease,margin-top .5s cubic-bezier(.2,.7,.2,1)}
+.repx.open{grid-template-rows:1fr;opacity:1;margin-top:0}
+.repx>div{overflow:hidden;min-height:0}
+.repx .inner{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff}
+.repx h3{margin:0;font-size:15px;font-weight:700}
+.rtab{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:10px}
+.rtab th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
+.rtab td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+.rtab tr:last-child td{border-bottom:0}
+.rtab td small{display:block;color:var(--muted);font-size:12px}
+.repx.open .rtab tbody tr{animation:rowin .45s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i) * 45ms + .15s)}
+@keyframes rowin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.rst{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.rst.late{background:var(--pend-soft);color:#7A4E0D}.rst.next{background:var(--sunk);color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.repx,.dmore svg{transition:none}.repx.open .rtab tbody tr{animation:none}}
 @media (max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dgrid{grid-template-columns:1fr}.dcard.w2{grid-column:auto}.week{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
@@ -727,6 +747,9 @@ function vPanel(){
   perms.filter(x=>x.status==='ok'&&+x.k.slice(0,4)===yr).forEach(x=>{const i=+x.k.slice(5,7)-1;(x.reps&&x.reps.length?x.reps:[{h:x.hours,done:x.repaid}]).forEach(b=>{if(b.done){pm.d[i]+=b.h;hDone+=b.h}else{pm.p[i]+=b.h;hPend+=b.h}})});
   /* ranking */
   const top=[...av].sort((a,b)=>b.v-a.v).slice(0,10).map(x=>({l:x.p.name,v:x.v}));
+  /* permisos aprobados con horas sin reponer o sin confirmar (de cualquier año) */
+  const pendR=perms.filter(x=>x.status==='ok'&&x.reps&&x.reps.some(b=>!b.done)).map(x=>({x,late:x.reps.some(b=>!b.done&&b.k<=TK),k:x.reps.find(b=>!b.done).k}))
+    .sort((a,b)=>(b.late-a.late)||a.k.localeCompare(b.k)).map(o=>o.x);
   /* esta semana */
   const mon=addD(TK,-((P(TK).getDay()+6)%7)),wk=[0,1,2,3,4].map(i=>addD(mon,i)),DN=['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const outOn=k=>{const o=[];sc.forEach(p=>{const r=reqs.find(r=>r.emp===p.id&&r.status==='ok'&&r.days.some(d=>d.k===k));
@@ -749,7 +772,13 @@ function vPanel(){
   <div class="dgrid">
     <div class="dcard"><h3>Saldos de vacaciones</h3><p class="sub">Personas según sus días disponibles hoy</p>${donutSVG(bins,sc.length,'personas')}</div>
     <div class="dcard"><h3>Vacaciones por empresa</h3><p class="sub">Días tomados en ${yr}</p>${donutSVG(coSegs,num(sum(coSegs.map(x=>x.v))),'días')}</div>
-    <div class="dcard"><h3>Reposición de permisos</h3><p class="sub">Horas de permisos aprobados en ${yr}</p>${donutSVG([{l:'Confirmadas',c:DC.ok,v:hDone},{l:'Por confirmar',c:DC.pend,v:hPend}],num(hDone+hPend)+' h','en permisos')}</div>
+    <div class="dcard"><h3>Reposición de permisos</h3><p class="sub">Horas de permisos aprobados en ${yr}</p>${donutSVG([{l:'Confirmadas',c:DC.ok,v:hDone},{l:'Por confirmar',c:DC.pend,v:hPend}],num(hDone+hPend)+' h','en permisos')}
+      ${pendR.length?`<button type="button" class="dmore" data-act="repToggle" data-lbl="Ver quiénes faltan (${new Set(pendR.map(x=>x.emp)).size})" aria-expanded="${!!F.repOpen}" aria-controls="repx"><span>${F.repOpen?'Ocultar':`Ver quiénes faltan (${new Set(pendR.map(x=>x.emp)).size})`}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>`:'<p class="small muted" style="margin:12px 0 0">Nadie tiene reposiciones pendientes.</p>'}</div>
+    ${pendR.length?`<div class="repx ${F.repOpen?'open':''}" id="repx"><div><div class="inner"><h3>Permisos sin reponer o sin confirmar</h3><p class="sub" style="margin:2px 0 0">Primero los que ya pasaron su fecha de reposición y esperan la confirmación de la jefatura.</p>
+      <div class="tbl" style="overflow-x:auto"><table class="rtab"><thead><tr><th>Persona</th><th>Jefatura</th><th>Permiso</th><th>Reposición pendiente</th><th>Horas</th><th>Estado</th></tr></thead><tbody>
+      ${pendR.map((x,i)=>{const e=who(x.emp),pb=x.reps.filter(b=>!b.done),late=pb.some(b=>b.k<=TK);
+        return `<tr style="--i:${i}"><td><strong>${esc(e?.name||x.emp)}</strong><small>${esc(e?.dept||'')}</small></td><td>${esc(repWho(x))}</td><td>${fD(x.k)}<small>${fT(x.start)} a ${fT(x.start+x.hours)} · ${x.hours} h</small></td><td>${pb.map(b=>`<div>${pb.length<x.reps.length||x.reps.length>1?'1 h · ':''}${blkTxt(b)}</div>`).join('')}</td><td>${num(pb.reduce((a,b)=>a+b.h,0))} h</td><td>${late?'<span class="rst late">Falta confirmar</span>':`<span class="rst next">Repone el ${fD(pb[0].k).split(' ').slice(0,3).join(' ')}</span>`}</td></tr>`}).join('')}
+      </tbody></table></div></div></div></div>`:''}
     <div class="dcard w2"><h3>Vacaciones por mes</h3><p class="sub">Días aprobados en ${yr}</p>${barsSVG(MES,vSeries,'días')}</div>
     <div class="dcard"><h3>Permisos por mes</h3><p class="sub">Horas en ${yr}</p>${barsSVG(MES.map(m=>m[0]),[{n:'Repuestas',c:DC.ok,vals:pm.d},{n:'Por reponer',c:DC.pend,vals:pm.p}],'h')}</div>
     <div class="dcard w3"><h3>Más días acumulados</h3><p class="sub">Las 10 personas con más días disponibles. En rojo, quienes pasan del máximo de ${ACUM}.</p>${rankSVG(top,ACUM)}</div>
@@ -1244,6 +1273,8 @@ document.addEventListener('click',e=>{
       if(b.n===2&&!G.repCols.has('Bloque')){toast('Falta la columna Bloque en Reposiciones. Pide a RH que abra el sistema y vuelve a intentarlo.');return}
       if(!armed(a,'¿Confirmas? Toca otra vez'))return;const rest=x.reps.filter(q=>q!==b&&!q.done).length;
       act(()=>addItem('reposiciones',{Title:x.reps.length>1?`${x.id}-${b.n}`:x.id,PermisoId:+x.spId,...(b.n>1?{Bloque:b.n}:{})}),rest?`Listo. Queda pendiente la otra hora de ${who(x.emp).name}.`:`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
+    case'repToggle':{V.dash.repOpen=!V.dash.repOpen;const el=document.getElementById('repx');if(el)el.classList.toggle('open',V.dash.repOpen);
+      a.setAttribute('aria-expanded',V.dash.repOpen);a.querySelector('span').textContent=V.dash.repOpen?'Ocultar':a.dataset.lbl;if(V.dash.repOpen)setTimeout(()=>el?.scrollIntoView({behavior:'smooth',block:'nearest'}),250);break}
     case'exportToggle':V.exporting=!V.exporting;V.importing=false;render();break;
     case'importToggle':V.importing=!V.importing;V.exporting=false;render();break;
     case'importPreview':{V.importRows=parseImport(val('imp')||'');V.importText=val('imp')||'';render();break}
