@@ -301,10 +301,25 @@ a.btn{text-decoration:none;display:inline-block}
 .dmore:hover{background:#D3E7EB}
 .dmore svg{width:14px;height:14px;transition:transform .35s ease}
 .dmore[aria-expanded="true"] svg{transform:rotate(180deg)}
-.repx{grid-column:1/-1;display:grid;grid-template-rows:0fr;opacity:0;margin-top:-14px;transition:grid-template-rows .5s cubic-bezier(.2,.7,.2,1),opacity .35s ease,margin-top .5s cubic-bezier(.2,.7,.2,1)}
-.repx.open{grid-template-rows:1fr;opacity:1;margin-top:0}
+.repx{grid-column:1/-1;display:grid;grid-template-rows:0fr;margin-top:-14px;
+  clip-path:circle(var(--r0,60px) at var(--cx,16%) var(--cy,-110px));
+  transition:clip-path .55s cubic-bezier(.55,0,.75,.2),grid-template-rows .45s cubic-bezier(.4,0,.2,1) .42s,margin-top .45s cubic-bezier(.4,0,.2,1) .42s}
+.repx.open{grid-template-rows:1fr;margin-top:0;clip-path:circle(var(--r1,3000px) at var(--cx,16%) var(--cy,-110px));
+  transition:clip-path .85s cubic-bezier(.22,.8,.25,1),grid-template-rows .55s cubic-bezier(.22,.8,.25,1),margin-top .55s cubic-bezier(.22,.8,.25,1)}
 .repx>div{overflow:hidden;min-height:0}
-.repx .inner{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff}
+.repx .inner{position:relative;border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff;overflow:hidden}
+.repx .inner::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at var(--cxi,16%) 0,#CFE6EB 0,#E4F0F2 40%,#fff 75%);opacity:0;pointer-events:none}
+.repx.open .inner::before{animation:inkfade 1.1s ease-out .1s both}
+.repx .inner>*{position:relative}
+@keyframes inkfade{0%{opacity:1}100%{opacity:0}}
+.donut .arcs{transform-origin:70px 70px}
+.donut.burst .arcs{animation:spin .8s cubic-bezier(.3,.7,.2,1)}
+.donut.burst svg{animation:pop .6s cubic-bezier(.3,.7,.2,1)}
+.donut .ripple{fill:none;stroke:var(--brand);stroke-width:3;opacity:0;transform-box:fill-box;transform-origin:center}
+.donut.burst .ripple{animation:ripple .75s ease-out}
+@keyframes spin{from{transform:rotate(-120deg)}to{transform:rotate(0)}}
+@keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.07)}100%{transform:scale(1)}}
+@keyframes ripple{0%{opacity:.55;transform:scale(1)}100%{opacity:0;transform:scale(1.7)}}
 .repx h3{margin:0;font-size:15px;font-weight:700}
 .rtab{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:10px}
 .rtab th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
@@ -315,7 +330,7 @@ a.btn{text-decoration:none;display:inline-block}
 @keyframes rowin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .rst{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap}
 .rst.late{background:var(--pend-soft);color:#7A4E0D}.rst.next{background:var(--sunk);color:var(--muted)}
-@media (prefers-reduced-motion:reduce){.repx,.dmore svg{transition:none}.repx.open .rtab tbody tr{animation:none}}
+@media (prefers-reduced-motion:reduce){.repx,.repx.open,.dmore svg{transition:none}.repx.open .rtab tbody tr,.repx.open .inner::before,.donut.burst .arcs,.donut.burst svg,.donut.burst .ripple{animation:none}}
 @media (max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dgrid{grid-template-columns:1fr}.dcard.w2{grid-column:auto}.week{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
@@ -700,7 +715,7 @@ function donutSVG(segs,center,sub){
   const arcs=tot?act.map(x=>{const len=x.v/tot*C,gap=act.length>1?2:0;
     const el=`<circle r="${R0}" cx="70" cy="70" fill="none" stroke="${x.c}" stroke-width="20" stroke-dasharray="${Math.max(len-gap,0.01)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"><title>${esc(x.l)}: ${num(x.v)}</title></circle>`;off+=len;return el}).join('')
     :`<circle r="${R0}" cx="70" cy="70" fill="none" stroke="${DC.grid}" stroke-width="20"/>`;
-  return `<div class="donut"><svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="${esc(segs.map(x=>x.l+': '+num(x.v)).join(', '))}">${arcs}
+  return `<div class="donut"><svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="${esc(segs.map(x=>x.l+': '+num(x.v)).join(', '))}" style="overflow:visible"><circle class="ripple" cx="70" cy="70" r="54"/><g class="arcs">${arcs}</g>
     <text x="70" y="70" text-anchor="middle" font-size="24" font-weight="700" fill="#1B2A33">${center}</text><text x="70" y="89" text-anchor="middle" font-size="11.5" fill="${DC.txt}">${sub}</text></svg>
     <ul class="dleg">${segs.map(x=>`<li><i style="background:${x.c}"></i>${esc(x.l)}<b>${num(x.v)}</b></li>`).join('')}</ul></div>`;
 }
@@ -1273,7 +1288,12 @@ document.addEventListener('click',e=>{
       if(b.n===2&&!G.repCols.has('Bloque')){toast('Falta la columna Bloque en Reposiciones. Pide a RH que abra el sistema y vuelve a intentarlo.');return}
       if(!armed(a,'¿Confirmas? Toca otra vez'))return;const rest=x.reps.filter(q=>q!==b&&!q.done).length;
       act(()=>addItem('reposiciones',{Title:x.reps.length>1?`${x.id}-${b.n}`:x.id,PermisoId:+x.spId,...(b.n>1?{Bloque:b.n}:{})}),rest?`Listo. Queda pendiente la otra hora de ${who(x.emp).name}.`:`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
-    case'repToggle':{V.dash.repOpen=!V.dash.repOpen;const el=document.getElementById('repx');if(el)el.classList.toggle('open',V.dash.repOpen);
+    case'repToggle':{V.dash.repOpen=!V.dash.repOpen;const el=document.getElementById('repx'),dn=a.closest('.dcard')?.querySelector('.donut');
+      if(el&&dn){const sv=dn.querySelector('svg').getBoundingClientRect(),er=el.getBoundingClientRect(),cx=sv.left+sv.width/2-er.left,cy=sv.top+sv.height/2-er.top,
+        h=(el.querySelector('.inner')?.scrollHeight||400)+20,r1=Math.hypot(Math.max(cx,er.width-cx),h-cy)+40;
+        el.style.setProperty('--cx',cx+'px');el.style.setProperty('--cy',cy+'px');el.style.setProperty('--r1',r1+'px');el.style.setProperty('--cxi',(cx/er.width*100)+'%');
+        dn.classList.remove('burst');void dn.offsetWidth;if(V.dash.repOpen)dn.classList.add('burst')}
+      if(el)el.classList.toggle('open',V.dash.repOpen);
       a.setAttribute('aria-expanded',V.dash.repOpen);a.querySelector('span').textContent=V.dash.repOpen?'Ocultar':a.dataset.lbl;if(V.dash.repOpen)setTimeout(()=>el?.scrollIntoView({behavior:'smooth',block:'nearest'}),250);break}
     case'exportToggle':V.exporting=!V.exporting;V.importing=false;render();break;
     case'importToggle':V.importing=!V.importing;V.exporting=false;render();break;
