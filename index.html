@@ -317,7 +317,7 @@ let S={people:[],reqs:[],perms:[],hol:{}};
 const V={user:null,tab:'vac',exporting:false,importing:false,team:'team',picker:null,pm:null,
   rm:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),month:new Date(TODAY.getFullYear(),TODAY.getMonth(),1),
   sel:new Map(),mf:{t:'all',e:'all',n:10},xf:{a:K(new Date(TODAY.getFullYear(),TODAY.getMonth(),1)),b:K(new Date(TODAY.getFullYear(),TODAY.getMonth()+1,0))},rejecting:null,person:null,adding:false,showInactive:false,vnote:'',
-  pf:{k:biz(3),start:10,hours:1,motive:'Trámite personal',repK:biz(5),repStart:17}};
+  pf:{k:biz(3),start:10,hours:1,motive:'Trámite personal',repK:biz(5),repStart:17,split:false,rep2K:biz(6),rep2Start:17}};
 const G={pca:null,account:null,me:null,siteId:null,listIds:{},pcols:new Set(),loadedAt:0};
 let busy=false;
 
@@ -348,6 +348,18 @@ async function gx(method,path,body){
   if(!r.ok)throw new GraphError(r.status,j?.error?.message||r.statusText);
   return j;
 }
+/* Crea en SharePoint las columnas nuevas que falten. Solo lo intenta RH (necesita poder administrar las listas). */
+const NEW_COLS={permisos:[{name:'FechaReposicion2',dateTime:{format:'dateOnly'}},{name:'HoraReposicion2',text:{}}],reposiciones:[{name:'Bloque',number:{}}]};
+async function ensureCols(){
+  const u=me();if(!u||u.role!=='rh')return;
+  let tk;try{tk=(await G.pca.acquireTokenSilent({scopes:['Sites.Manage.All'],account:G.account})).accessToken}catch(e){console.warn('Columnas: falta el permiso Sites.Manage.All',e);return}
+  for(const [key,cols] of Object.entries(NEW_COLS)){if(!G.listIds[key])continue;const have=key==='permisos'?G.permCols:G.repCols;
+    for(const c of cols){if(have.has(c.name))continue;
+      const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${G.siteId}/lists/${G.listIds[key]}/columns`,{method:'POST',headers:{Authorization:'Bearer '+tk,'Content-Type':'application/json'},body:JSON.stringify({...c,displayName:c.name})});
+      if(r.ok){have.add(c.name);console.info('Columna creada:',key,c.name)}else console.warn('No se pudo crear la columna',key,c.name,await r.text())}}
+  if(splitOK())render();
+}
+const splitOK=()=>!!(G.permCols?.has('FechaReposicion2')&&G.permCols?.has('HoraReposicion2'));
 async function allItems(list){
   let url=`/sites/${G.siteId}/lists/${G.listIds[list]}/items?$expand=fields&$top=999`,out=[];
   while(url){const j=await gx('GET',url);out=out.concat(j.value);url=j['@odata.nextLink']||null}
@@ -386,6 +398,9 @@ async function connect(){
   {const r=ls.find(l=>lc(l.displayName)==='reposiciones'||lc(l.name)==='reposiciones');if(r)G.listIds.reposiciones=r.id}
   /* Columnas opcionales de Personal (Empresa, NumeroEmpleado, UnidadOperativa): solo se guardan si existen en SharePoint */
   try{G.pcols=new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds.personal}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){G.pcols=new Set()}
+  /* Columnas para reponer un permiso de 2 h en dos partes */
+  const colsOf=async key=>{try{return new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[key]}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){return new Set()}};
+  G.permCols=await colsOf('permisos');G.repCols=G.listIds.reposiciones?await colsOf('reposiciones'):new Set();
 }
 async function loadAll(){
   const [pe,so,pm,fe,rp]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),G.listIds.reposiciones?allItems('reposiciones'):Promise.resolve([])]);
@@ -398,14 +413,16 @@ async function loadAll(){
     if(!days.length&&f.Desde){let k=rd(f.Desde);const h=rd(f.Hasta)||k;while(k<=h){if(!isWk(k))days.push({k,p:'full'});k=addD(k,1)}}
     return{id:'V'+i.id,spId:i.id,emp:lc(f.EmpleadoCorreo),days,unpaid:+f.DiasSinGoce||0,note:f.Nota||'',status:EST_IN[f.Estado]||'jefatura',reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
   const perms=pm.map(i=>{const f=i.fields;return{id:'P'+i.id,spId:i.id,emp:lc(f.EmpleadoCorreo),k:rd(f.Fecha),start:fromHHMM(f.HoraSalida),hours:+f.Horas||1,motive:f.Motivo||'',
-    repK:rd(f.FechaReposicion),repStart:fromHHMM(f.HoraReposicion),status:EST_IN[f.Estado]||'jefatura',repaid:f.Repuesto===true,boss:lc(f.JefaturaCorreo)||null,reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
+    repK:rd(f.FechaReposicion),repStart:fromHHMM(f.HoraReposicion),rep2K:f.FechaReposicion2?rd(f.FechaReposicion2):null,rep2Start:f.HoraReposicion2?fromHHMM(f.HoraReposicion2):null,status:EST_IN[f.Estado]||'jefatura',repaid:f.Repuesto===true,boss:lc(f.JefaturaCorreo)||null,reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
   const hol={},holIds={};fe.forEach(i=>{const k=rd(i.fields.Fecha);if(k){hol[k]=i.fields.Title||'Feriado';holIds[k]=i.id}});
   S={people,reqs,perms,hol,holIds,all:people};
   S.people=people.filter(p=>p.active);
   /* Reposiciones: cuenta como repuesto si lo confirmó su jefatura (o RH si la persona no tiene jefatura).
      Se valida con quien CREÓ la confirmación en SharePoint, no con lo que diga el texto. */
-  const confs=rp.map(i=>({permId:String(i.fields.PermisoId??''),by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:rd(i.createdDateTime)}));
-  perms.forEach(x=>{const c=confs.find(c=>c.permId===String(x.spId)&&confOK(c,x));if(c){x.conf=c;x.repaid=true}});
+  const confs=rp.map(i=>({permId:String(i.fields.PermisoId??''),block:+i.fields.Bloque||1,by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:rd(i.createdDateTime)}));
+  perms.forEach(x=>{const sp=x.repaid;x.reps=repsOf(x);
+    x.reps.forEach(b=>{b.conf=confs.find(c=>c.permId===String(x.spId)&&c.block===b.n&&confOK(c,x))||null;b.done=sp||!!b.conf});
+    x.repaid=x.reps.length?x.reps.every(b=>b.done):sp;x.conf=x.reps.map(b=>b.conf).filter(Boolean).at(-1)||null});
   G.loadedAt=Date.now();
   setTimeout(calSync,500);
 }
@@ -441,8 +458,8 @@ function calWanted(){
   if(u.bday){const y=TODAY.getFullYear();for(const k of [`${y}-${u.bday}`,`${y+1}-${u.bday}`]){if(K(P(k))!==k||k<TK||!isBiz(k))continue;
     out.push({key:`B|${k}`,subject:'Día libre por cumpleaños',start:k+'T00:00:00',end:addD(k,1)+'T00:00:00',allDay:true,showAs:'oof'});break}}
   S.perms.filter(x=>x.emp===u.id&&x.status==='ok').forEach(x=>{
-    out.push({key:`P${x.spId}|${x.k}|${x.start}|${x.hours}`,subject:`Permiso (${x.hours} h)`,body:`Motivo: ${x.motive}. Repones el ${fD(x.repK)}, ${fT(x.repStart)} a ${fT(x.repStart+x.hours)}.`,start:tAt(x.k,x.start),end:tAt(x.k,x.start+x.hours),allDay:false,showAs:'oof'});
-    if(x.repK)out.push({key:`R${x.spId}|${x.repK}|${x.repStart}|${x.hours}`,subject:`Reposición de permiso (${x.hours} h)`,body:`Repones el permiso del ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}.`,start:tAt(x.repK,x.repStart),end:tAt(x.repK,x.repStart+x.hours),allDay:false,showAs:'busy'})});
+    out.push({key:`P${x.spId}|${x.k}|${x.start}|${x.hours}`,subject:`Permiso (${x.hours} h)`,body:`Motivo: ${x.motive}. Repones ${repTxt(x)}.`,start:tAt(x.k,x.start),end:tAt(x.k,x.start+x.hours),allDay:false,showAs:'oof'});
+    x.reps.forEach(b=>out.push({key:x.reps.length>1?`R${x.spId}|${b.n}|${b.k}|${b.start}|${b.h}`:`R${x.spId}|${b.k}|${b.start}|${x.hours}`,subject:`Reposición de permiso (${b.h} h)${x.reps.length>1?`, ${b.n} de 2`:''}`,body:`Repones el permiso del ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}.${x.reps.length>1?` Reposición en dos partes: ${repTxt(x)}.`:''}`,start:tAt(b.k,b.start),end:tAt(b.k,b.start+b.h),allDay:false,showAs:'busy'}))});
   return out.filter(e=>e.end>TK+'T00:00:00');
 }
 async function calSync(){
@@ -487,8 +504,17 @@ function bal(id){
   const earned=earnedFrom(p.start);const avail=earned-p.prior-ap;
   return{earned,taken:p.prior+ap,pending:pe,avail,free:avail-pe};
 }
-const owedL=id=>S.perms.filter(x=>x.emp===id&&x.status==='ok'&&!x.repaid).sort((a,b)=>a.repK.localeCompare(b.repK));
-const owed=id=>owedL(id).reduce((s,x)=>s+x.hours,0);
+/* Reposición en bloques: un permiso de 2 h puede reponerse en dos partes de 1 h, cada una con su día y hora */
+const repsOf=x=>x.rep2K?[{n:1,k:x.repK,start:x.repStart,h:1},{n:2,k:x.rep2K,start:x.rep2Start,h:1}]:x.repK?[{n:1,k:x.repK,start:x.repStart,h:x.hours}]:[];
+const blkTxt=b=>`${fD(b.k)}, ${fT(b.start)} a ${fT(b.start+b.h)}`;
+const repTxtB=r=>r.length>1?`1 hora el ${blkTxt(r[0])} y otra hora el ${blkTxt(r[1])}`:r[0]?blkTxt(r[0]):'';
+const repTxt=x=>repTxtB(x.reps||repsOf(x));
+/* Bloques de reposición a partir del formulario */
+const fBlocks=f=>f.hours===2&&f.split?[{n:1,k:f.repK,start:f.repStart,h:1},{n:2,k:f.rep2K,start:f.rep2Start,h:1}]:[{n:1,k:f.repK,start:f.repStart,h:f.hours}];
+const blkState=(x,b)=>x.status!=='ok'?'':b.conf?` (repuesta, confirmó ${esc(who(b.conf.by)?.name||b.conf.byName)} el ${fD(b.conf.at)})`:b.done?' (repuesta)':blkDue(x,b)?` (falta que ${esc(repWho(x))} confirme)`:'';
+const nextBlk=x=>(x.reps||[]).find(b=>!b.done);
+const owedL=id=>S.perms.filter(x=>x.emp===id&&x.status==='ok'&&!x.repaid&&x.reps?.length).sort((a,b)=>nextBlk(a).k.localeCompare(nextBlk(b).k));
+const owed=id=>owedL(id).reduce((s,x)=>s+x.reps.filter(b=>!b.done).reduce((t,b)=>t+b.h,0),0);
 function booked(id){const m=new Map();S.reqs.forEach(r=>{if(r.emp===id&&live(r.status))r.days.forEach(d=>m.set(d.k,{p:d.p,st:r.status}))});return m}
 const isBday=(id,k)=>{const p=who(id);return !!(p&&p.bday&&p.bday===k.slice(5)&&isBiz(k))};
 /* Corta días en tramos seguidos: fines de semana, feriados y el cumpleaños de la persona no cortan el tramo */
@@ -498,9 +524,13 @@ const runsOf=(ds,emp)=>{const out=[];ds.forEach(d=>{const g=out.at(-1);let nx=g&
 const repBosses=x=>[x.boss,who(x.emp)?.boss].filter(Boolean);
 const confOK=(c,x)=>{const bs=repBosses(x);if(bs.length)return bs.includes(c.by)||(!c.by&&bs.some(b=>who(b)?.name===c.byName));
   const p=who(c.by)||(S.all||[]).find(q=>q.name===c.byName);return !!(p&&p.role==='rh'&&p.id!==x.emp)};
-const repDue=x=>x.status==='ok'&&!x.repaid&&!!x.repK&&x.repK<=TK;
-const canConfirm=x=>{const u=me();if(!u||!repDue(x)||x.emp===u.id)return false;const bs=repBosses(x);return bs.length?bs.includes(u.id):u.role==='rh'};
-const toConfirm=()=>S.perms.filter(canConfirm).sort((a,b)=>a.repK.localeCompare(b.repK));
+const blkDue=(x,b)=>x.status==='ok'&&!b.done&&!!b.k&&b.k<=TK;
+const repDue=x=>(x.reps||[]).some(b=>blkDue(x,b));
+const isConfirmer=x=>{const u=me();if(!u||x.emp===u.id)return false;const bs=repBosses(x);return bs.length?bs.includes(u.id):u.role==='rh'};
+const canConfirmBlk=(x,b)=>blkDue(x,b)&&isConfirmer(x);
+const canConfirm=x=>(x.reps||[]).some(b=>canConfirmBlk(x,b));
+/* Lista de bloques por confirmar: {x, b} */
+const toConfirm=()=>S.perms.flatMap(x=>(x.reps||[]).filter(b=>canConfirmBlk(x,b)).map(b=>({x,b}))).sort((p,q)=>p.b.k.localeCompare(q.b.k));
 const repWho=x=>{const b=repBosses(x)[0];return b?(who(b)?.name||'la jefatura'):'RH'};
 const canPick=k=>k>=TK&&isBiz(k)&&!booked(V.user).has(k)&&!isBday(V.user,k);
 /* Reparte una selección entre días pagados y sin goce (los últimos días son los sin goce) */
@@ -563,7 +593,7 @@ function render(){
   <div class="stats">
     <div class="stat main"><span>Días disponibles</span><strong ${b.avail<0?'class="neg"':''}>${num(b.avail)}</strong><small>${b.avail<0?`Usaste ${dias(-b.avail)} por adelantado. Quedas al día el ${fD(coverDate(u,-b.avail))}`:`Ganas 1 día más el ${fD(nextAccrual(u.start))}`}</small></div>
     <div class="stat"><span>Próximas vacaciones</span><strong>${nv?nv.label:'Ninguna'}</strong><small>${nv?dias(nv.t):'Aún no tienes días aprobados'}</small></div>
-    <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?(ol.repK<=TK?`Falta que ${esc(repWho(ol))} confirme que repusiste`:`Repones el ${fD(ol.repK)}, ${fT(ol.repStart)}`):'Estás al día'}</small></div>
+    <div class="stat"><span>Tiempo por reponer</span><strong class="${o?'owe':''}">${o?o+' h':'0 h'}</strong><small>${o?(()=>{const b=nextBlk(ol);return b.k<=TK?`Falta que ${esc(repWho(ol))} confirme que repusiste`:`Repones ${b.h} h el ${fD(b.k)}, ${fT(b.start)}`})():'Estás al día'}</small></div>
   </div>
   ${alertHTML(u,b)}
   <nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.tab===id}" data-tab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>
@@ -645,15 +675,20 @@ function renderPick(){
 const MOT=['Cita médica','Trámite personal','Asunto familiar','Estudios','Otro'];
 function tOpts(a,b,v){let o='';for(let t=a;t<=b;t+=.5)o+=`<option value="${t}" ${t===v?'selected':''}>${fT(t)}</option>`;return o}
 function pCheck(f){
-  if(!f.k||!f.repK)return[0,'Elige el día del permiso y el día en que lo repones.'];
+  const bl=fBlocks(f);
+  if(!f.k||bl.some(b=>!b.k))return[0,bl.length>1?'Elige el día del permiso y los dos días en que repones.':'Elige el día del permiso y el día en que lo repones.'];
   if(f.k<TK)return[0,'El permiso no puede ser en una fecha pasada.'];
   if(!isBiz(f.k))return[0,`El ${fD(f.k)} no es día laboral.`];
   if(f.start+f.hours>24)return[0,'El permiso debe terminar el mismo día. Elige una hora más temprano.'];
-  if(f.repStart+f.hours>24)return[0,'La reposición debe terminar el mismo día. Elige una hora más temprano.'];
   if(f.motive==='Otro'&&!(f.other||'').trim())return[0,'Escribe una breve explicación del motivo.'];
-  if(f.repK<f.k)return[0,'La reposición debe ser el mismo día del permiso o después.'];
-  if(f.repK===f.k&&f.repStart<f.start+f.hours&&f.repStart+f.hours>f.start)return[0,'La reposición choca con el horario del permiso.'];
-  return[1,`Sales el <strong>${fD(f.k)}</strong> de ${fT(f.start)} a ${fT(f.start+f.hours)} y repones el <strong>${fD(f.repK)}</strong> de ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`.replace(/\.?$/,'.')];
+  const nm=b=>bl.length>1?(b.n===1?'La primera hora de reposición':'La segunda hora de reposición'):'La reposición';
+  for(const b of bl){
+    if(b.start+b.h>24)return[0,`${nm(b)} debe terminar el mismo día. Elige una hora más temprano.`];
+    if(b.k<f.k)return[0,`${nm(b)} debe ser el mismo día del permiso o después.`];
+    if(b.k===f.k&&b.start<f.start+f.hours&&b.start+b.h>f.start)return[0,`${nm(b)} choca con el horario del permiso.`];
+  }
+  if(bl.length>1&&bl[0].k===bl[1].k&&bl[0].start<bl[1].start+1&&bl[1].start<bl[0].start+1)return[0,'Las dos horas de reposición chocan entre sí. Elige otra hora para una de ellas.'];
+  return[1,`Sales el <strong>${fD(f.k)}</strong> de ${fT(f.start)} a ${fT(f.start+f.hours)} y repones ${bl.length>1?`<strong>1 hora</strong> el <strong>${fD(bl[0].k)}</strong> de ${fT(bl[0].start)} a ${fT(bl[0].start+1)} y <strong>otra hora</strong> el <strong>${fD(bl[1].k)}</strong> de ${fT(bl[1].start)} a ${fT(bl[1].start+1)}`:`el <strong>${fD(bl[0].k)}</strong> de ${fT(bl[0].start)} a ${fT(bl[0].start+bl[0].h)}`}.`];
 }
 const pickOK=(field,k)=>field==='k'?(k>=TK&&isBiz(k)):(k>=(V.pf.k||TK)&&P(k).getDay()!==0&&!S.hol[k]);
 function dateField(field,val){
@@ -676,8 +711,11 @@ function vPerm(){
     <div class="f"><span>Duración</span><div class="seg lg" role="radiogroup">${[1,2].map(h=>`<button type="button" role="radio" aria-checked="${f.hours===h}" data-hours="${h}">${h} ${h===1?'hora':'horas'}</button>`).join('')}</div></div>
     <label class="f"><span>Motivo</span><select data-pf="motive">${MOT.map(m=>`<option ${m===f.motive?'selected':''}>${m}</option>`).join('')}</select></label>
     ${f.motive==='Otro'?`<label class="f"><span>Explica el motivo</span><textarea data-pf="other" rows="3" placeholder="Cuéntale a tu jefatura para qué es el permiso" style="resize:vertical">${esc(f.other||'')}</textarea></label>`:''}
-    <div class="two"><div class="f"><span>Repones el día</span>${dateField('repK',f.repK)}</div>
+    ${f.hours===2&&splitOK()?`<div class="f"><span>¿Cómo repones las 2 horas?</span><div class="seg lg" role="radiogroup">${[[0,'Todo junto'],[1,'En dos partes (1 h y 1 h)']].map(([v,t])=>`<button type="button" role="radio" aria-checked="${!!f.split===!!v}" data-split="${v}">${t}</button>`).join('')}</div></div>`:''}
+    <div class="two"><div class="f"><span>${f.hours===2&&f.split?'Primera hora: repones el día':'Repones el día'}</span>${dateField('repK',f.repK)}</div>
     <label class="f"><span>Desde las</span><select data-pf="repStart">${tOpts(0,23.5,f.repStart)}</select></label></div>
+    ${f.hours===2&&f.split?`<div class="two"><div class="f"><span>Segunda hora: repones el día</span>${dateField('rep2K',f.rep2K)}</div>
+    <label class="f"><span>Desde las</span><select data-pf="rep2Start">${tOpts(0,23.5,f.rep2Start)}</select></label></div>`:''}
     <div class="preview ${ok?'':'bad'}" id="pprev">${msg}</div>
     <button class="btn primary wide" id="psend" data-act="sendPerm" ${ok?'':'disabled'}>Enviar permiso</button>
   </div>
@@ -693,7 +731,7 @@ function myItems(){const u=me();return [...S.reqs.filter(r=>r.emp===u.id),...S.p
 const itemDate=x=>x.id[0]==='V'?([...x.days].sort((a,b)=>a.k.localeCompare(b.k))[0]?.k||''):x.k;
 function itemRow(x){const u=me(),isV=x.id[0]==='V';
   const head=isV?summ(x.days):`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)}`;
-  const sub=isV?statusText(x)+(x.note?` · ${esc(x.note)}`:''):`${esc(x.motive)} · Repone ${fD(x.repK)}, ${fT(x.repStart)}${x.repaid?' · Ya repuesto':repDue(x)?` · Falta que ${esc(repWho(x))} confirme la reposición`:''}${x.status==='no'&&x.reason?' · Motivo: '+esc(x.reason):''}${isPend(x.status)?' · '+statusText(x):''}`;
+  const sub=isV?statusText(x)+(x.note?` · ${esc(x.note)}`:''):`${esc(x.motive)} · Repone ${repTxt(x)}${x.repaid?' · Ya repuesto':x.reps.length>1&&x.reps.some(b=>b.done)?' · 1 de 2 horas repuesta'+(repDue(x)?`, falta que ${esc(repWho(x))} confirme la otra`:''):repDue(x)?` · Falta que ${esc(repWho(x))} confirme la reposición`:''}${x.status==='no'&&x.reason?' · Motivo: '+esc(x.reason):''}${isPend(x.status)?' · '+statusText(x):''}`;
   const amt=isV?`${dias(total(x.days))}${advOf(x)?` <span class="tagx adv">${num(advOf(x))} adelantado${advOf(x)>1?'s':''}</span>`:''}${x.unpaid?` <span class="tagx">${num(x.unpaid)} sin goce</span>`:''}`:`${x.hours} h`;
   const pill=isV?STATUS[x.status]:(x.status==='ok'&&x.repaid?'Repuesto':STATUS[x.status].replace('Aprobada','Aprobado').replace('Rechazada','Rechazado').replace('Cancelada','Cancelado'));
   const can=u.role==='rh'&&isPend(x.status)?`<button class="lnk red" data-act="${isV?'cancelReq':'cancelPerm'}" data-id="${x.id}">Cancelar</button>`:'';
@@ -720,15 +758,15 @@ function vMis(){
 function vAprob(){
   const u=me(),q=queue(),rc=toConfirm(),team=S.people.filter(p=>p.boss===u.id);
   const row=x=>{const e=who(x.emp),isV=x.id[0]==='V';
-    const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)}.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${fD(x.repK)} a las ${fT(x.repStart)}`;
+    const det=isV?`${summ(x.days)}. Tiene ${dias(bal(e.id).avail)}.`:`${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${x.motive}). Repone ${repTxt(x)}`;
     const extra=(x.status==='rh'&&e.boss?` Aprobado por ${esc(who(e.boss)?.name)}.`:'')+(isV&&advOf(x)?` <span class="tagx adv">${dias(advOf(x))} por adelantado (los gana antes de esas fechas)</span>`:'')+(isV&&x.unpaid?` <span class="tagx">Incluye ${dias(x.unpaid)} sin goce de salario</span>`:'');
     const cl=isV?clashes(x):[];
     const acts=`<a class="btn sm primary" href="${CONFIG.teamsAprobaciones}" target="_blank" rel="noopener">Abrir en Teams</a>`,_old=V.rejecting===x.id?`<input id="why" placeholder="Motivo (opcional)"><button class="btn sm" data-act="noCancel">Volver</button><button class="btn sm danger" data-act="noOk" data-id="${x.id}">Rechazar</button>`
       :`<button class="btn sm" data-act="no" data-id="${x.id}">Rechazar</button><button class="btn sm primary" data-act="yes" data-id="${x.id}">Aprobar</button>`;
     return `<li><div class="main"><strong>${esc(e.name)}, ${isV?'vacaciones':'permiso'}</strong><p>${det}${extra}</p>${cl.length?`<p class="clash">⚠ Esos días también sale: ${cl.map(esc).join('; ')}</p>`:''}</div><span class="amt">${isV?dias(total(x.days)):x.hours+' h'}</span><div class="acts">${acts}</div></li>`};
   return `<h2>Pendientes</h2><p class="note" style="margin:-6px 0 12px">Apruebas o rechazas desde la tarjeta que te llega en Teams (app Aprobaciones) o en tu correo. Aquí ves el detalle${u.role==='rh'?'':' y si choca con otras personas de tu equipo'}.</p><ul class="rows">${q.map(row).join('')||'<li><p class="empty">No tienes nada por aprobar.</p></li>'}</ul>
-  ${rc.length?`<div class="section"><h2>Reposiciones por confirmar</h2><p class="note" style="margin:-6px 0 12px">Confirma cuando la persona ya repuso el tiempo del permiso. Si todavía no lo ha repuesto, déjalo pendiente.</p><ul class="rows">${rc.map(x=>{const e=who(x.emp);
-    return `<li><div class="main"><strong>${esc(e.name)}, permiso de ${x.hours} h</strong><p>Permiso el ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${esc(x.motive)}). Tenía que reponer el ${fD(x.repK)}, ${fT(x.repStart)} a ${fT(x.repStart+x.hours)}.</p></div><span class="amt">${x.hours} h</span><div class="acts"><button class="btn sm primary" data-act="confirmRep" data-id="${x.id}">Sí, ya repuso</button></div></li>`}).join('')}</ul></div>`:''}
+  ${rc.length?`<div class="section"><h2>Reposiciones por confirmar</h2><p class="note" style="margin:-6px 0 12px">Confirma cuando la persona ya repuso el tiempo del permiso. Si todavía no lo ha repuesto, déjalo pendiente.</p><ul class="rows">${rc.map(({x,b})=>{const e=who(x.emp),two=x.reps.length>1;
+    return `<li><div class="main"><strong>${esc(e.name)}, permiso de ${x.hours} h${two?` · ${b.n===1?'primera':'segunda'} hora de reposición`:''}</strong><p>Permiso el ${fD(x.k)}, ${fT(x.start)} a ${fT(x.start+x.hours)} (${esc(x.motive)}). Tenía que reponer ${two?'1 hora ':''}el ${blkTxt(b)}.${two?` La ${b.n===1?'segunda':'primera'} hora: ${blkTxt(x.reps[2-b.n])}${x.reps[2-b.n].done?', ya confirmada':''}.`:''}</p></div><span class="amt">${b.h} h</span><div class="acts"><button class="btn sm primary" data-act="confirmRep" data-id="${x.id}" data-blk="${b.n}">Sí, ya repuso</button></div></li>`}).join('')}</ul></div>`:''}
   ${team.length?`<div class="section"><h2>Mi equipo</h2><div class="tbl"><table><thead><tr><th>Persona</th><th class="num">Disponibles</th><th class="num">En aprobación</th><th>Próximas vacaciones</th><th class="num">Por reponer</th><th></th></tr></thead><tbody>
   ${team.map(p=>{const b=bal(p.id),o=owed(p.id),nv=nextVac(p.id);return `<tr><td>${esc(p.name)}</td><td class="num ${b.avail>ACUM?'hi':b.avail<0?'neg':''}" title="${advText(p,b)}">${num(b.avail)}${b.avail<0?' <span class="tagx adv">adelantado</span>':''}</td><td class="num">${num(b.pending)}</td><td>${nv?nv.label:'—'}</td><td class="num">${o?o+' h':'—'}</td><td></td></tr>`}).join('')}
   </tbody></table></div></div>`:''}`;
@@ -826,7 +864,7 @@ function vPerson(p){
     <button class="btn" data-act="addDay" data-emp="${p.id}">${p.boss?'Registrar y enviar a la jefatura':'Registrar como aprobado'}</button>
   </div>
   <ul class="rows">${reqs.map(r=>`<li><div class="main"><strong>${summ(r.days)}</strong><p>${statusText(r)}</p></div><span class="amt">${dias(total(r.days))}${advOf(r)?` <span class="tagx adv">${num(advOf(r))} adelantado${advOf(r)>1?'s':''}</span>`:''}${r.unpaid?` <span class="tagx">${num(r.unpaid)} sin goce</span>`:''}</span><span class="pill ${r.status}">${STATUS[r.status]}</span><button class="lnk red" data-act="delReq" data-id="${r.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin vacaciones registradas.</p></li>'}</ul>
-  <div class="section"><h2>Permisos</h2><ul class="rows">${perms.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${x.hours} h</strong><p>${x.motive}. Repone ${fD(x.repK)}${x.conf?`. Repuesto, confirmado por ${esc(who(x.conf.by)?.name||x.conf.byName)} el ${fD(x.conf.at)}`:x.repaid?'. Ya repuesto':repDue(x)?`. Falta que ${esc(repWho(x))} confirme la reposición`:''}</p></div><span class="pill ${x.status}">${STATUS[x.status]}</span>${canConfirm(x)?`<button class="lnk" data-act="confirmRep" data-id="${x.id}">Sí, ya repuso</button>`:''}<button class="lnk red" data-act="delPerm" data-id="${x.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin permisos.</p></li>'}</ul></div>`;
+  <div class="section"><h2>Permisos</h2><ul class="rows">${perms.map(x=>`<li><div class="main"><strong>${fD(x.k)}, ${x.hours} h</strong><p>${x.motive}. ${x.reps.length>1?x.reps.map(b=>`Repone 1 h el ${blkTxt(b)}${blkState(x,b)}`).join('. '):`Repone ${repTxt(x)}${x.reps[0]?blkState(x,x.reps[0]):''}`}</p></div><span class="pill ${x.status}">${STATUS[x.status]}</span>${(()=>{const b=x.reps.find(q=>canConfirmBlk(x,q));return b?`<button class="lnk" data-act="confirmRep" data-id="${x.id}" data-blk="${b.n}">Sí, ya repuso${x.reps.length>1?` (${b.n===1?'1.ª':'2.ª'} hora)`:''}</button>`:''})()}<button class="lnk red" data-act="delPerm" data-id="${x.id}">Eliminar</button></li>`).join('')||'<li><p class="empty">Sin permisos.</p></li>'}</ul></div>`;
 }
 function vFer(){
   const list=Object.entries(S.hol).sort((a,b)=>a[0].localeCompare(b[0])).filter(([k])=>k>=K(new Date(TODAY.getFullYear(),0,1)));
@@ -884,11 +922,12 @@ function sendVac(){
 function sendPerm(){
   const u=me(),f=V.pf;if(!pCheck(f)[0])return;const to=u.boss?(who(u.boss)?.name||'tu jefatura'):'RH';
   act(async()=>{const mot=f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive;
-    const facts=[['Día',fD(f.k)],['Horario',`${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`],['Motivo',mot],['Repone',`${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`]];
+    const bl=fBlocks(f),two=bl.length>1;if(two&&!splitOK())throw new Error('Todavía no se puede reponer en dos partes. Pide a RH que abra el sistema y vuelve a intentarlo.');
+    const facts=[['Día',fD(f.k)],['Horario',`${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`],['Motivo',mot],...(two?[['Repone 1 hora',blkTxt(bl[0])],['Repone otra hora',blkTxt(bl[1])]]:[['Repone',blkTxt(bl[0])]])];
     await addItem('permisos',{TarjetaJefatura:card(u,'un permiso',facts,[],false),TarjetaRH:card(u,'un permiso',facts,[],true),
       Title:`${u.name}: permiso ${fD(f.k)}, ${fT(f.start)} a ${fT(f.start+f.hours)} (${f.hours} h)`.slice(0,250),
-    Detalle:`Motivo: ${esc(mot)}<br>Repone: ${fD(f.repK)}, ${fT(f.repStart)} a ${fT(f.repStart+f.hours)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
-    FechaReposicion:wd(f.repK),HoraReposicion:hhmm(f.repStart),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.other=''},`Permiso enviado a ${to}.`);
+    Detalle:`Motivo: ${esc(mot)}<br>Repone: ${repTxtB(bl)}`,JefaturaCorreo:u.boss||'',RequiereRH:u.role!=='rh',EmpleadoCorreo:u.email,Fecha:wd(f.k),HoraSalida:hhmm(f.start),Horas:f.hours,Motivo:f.motive==='Otro'?`Otro: ${(f.other||'').trim()}`:f.motive,
+    FechaReposicion:wd(bl[0].k),HoraReposicion:hhmm(bl[0].start),...(two?{FechaReposicion2:wd(bl[1].k),HoraReposicion2:hhmm(bl[1].start)}:{}),Estado:u.boss?'Jefatura':'RH',Repuesto:false});V.pf.split=false;V.pf.other=''},`Permiso enviado a ${to}.`);
 }
 function decide(id,ok,why){
   const x=findX(id),e=who(x.emp),list=x.id[0]==='V'?'solicitudes':'permisos';
@@ -955,7 +994,7 @@ async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
       vac.push({'Nombre':p?.name||r.emp,'Empresa':p?.company||'','Número de empleado':p?.empNo||'','Departamento':p?.dept||'','Fecha':xd(d.k),'Tipo':PARTE_TXT[d.p]||d.p,'Días':v,'Con goce':paid,'Sin goce':v-paid,'Estado':ESTADO_TXT[r.status]||r.status})})});
   vac.sort((a,b)=>a.Fecha-b.Fecha||a.Nombre.localeCompare(b.Nombre));
   const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),
-    'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.repK),'Hora reposición':`${hhmm(x.repStart)} a ${hhmm(x.repStart+x.hours)}`,'Repuesto':x.repaid?'Sí':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
+    'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.reps[0]?.k),'Hora reposición':x.reps[0]?`${hhmm(x.reps[0].start)} a ${hhmm(x.reps[0].start+x.reps[0].h)}`:'','Repone (2.ª hora)':x.reps[1]?xd(x.reps[1].k):'','Hora reposición (2.ª hora)':x.reps[1]?`${hhmm(x.reps[1].start)} a ${hhmm(x.reps[1].start+1)}`:'','Repuesto':x.repaid?'Sí':x.reps.some(b=>b.done)?'1 de 2 horas':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
   const vacD=vac.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b}),permD=perm.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b});
   const pl=payrollSheets(a,b),PCOL=['Empleado','Unidad Operativa','Rige desde','Dias','Afecta planilla','Valor','Campo total dias','Descripcion'];
   const wb=XLSX.utils.book_new();
@@ -978,7 +1017,7 @@ async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
   addPl(pl.vac,'Vacaciones');addPl(pl.con,'Permisos con goce');addPl(pl.sin,'Permisos sin goce');
   add(saldos,'Saldos',['Nombre','Correo','Empresa','Número de empleado','Unidad operativa','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días sin goce (aprobados)','Horas por reponer']);
   add(vacD,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
-  add(permD,'Detalle permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repuesto','Estado']);
+  add(permD,'Detalle permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repone (2.ª hora)','Hora reposición (2.ª hora)','Repuesto','Estado']);
   XLSX.writeFile(wb,`Planilla vacaciones y permisos ${a} a ${b}.xlsx`);toast('Excel descargado.');
 }
 
@@ -1025,7 +1064,7 @@ document.addEventListener('click',e=>{
   if(pk){const f=pk.dataset.pick;if(V.picker===f)V.picker=null;else{V.picker=f;const base=P(V.pf[f]||TK);V.pm=new Date(base.getFullYear(),base.getMonth(),1)}render();return}
   const pmv=e.target.closest('[data-pmv]');if(pmv){V.pm=new Date(V.pm.getFullYear(),V.pm.getMonth()+ +pmv.dataset.pmv,1);render();return}
   const pd=e.target.closest('[data-pday]');
-  if(pd){const f=V.picker,k=pd.dataset.pday;V.pf[f]=k;if(f==='k'&&V.pf.repK&&V.pf.repK<k)V.pf.repK=k;V.picker=null;render();return}
+  if(pd){const f=V.picker,k=pd.dataset.pday;V.pf[f]=k;if(f==='k'){if(V.pf.repK&&V.pf.repK<k)V.pf.repK=k;if(V.pf.rep2K&&V.pf.rep2K<k)V.pf.rep2K=k}V.picker=null;render();return}
   if(V.picker&&!e.target.closest('.pop')){V.picker=null;render()}
   const day=e.target.closest('.day[data-k]');
   if(day){if(e.detail===0&&canPick(day.dataset.k)){const k=day.dataset.k;V.sel.has(k)?V.sel.delete(k):V.sel.set(k,'full');paint();renderPick()}return}
@@ -1033,7 +1072,8 @@ document.addEventListener('click',e=>{
   const mfe=e.target.closest('[data-mfe]');if(mfe){V.mf.e=mfe.dataset.mfe;V.mf.n=10;render();return}
   const t=e.target.closest('[data-tab]');if(t){V.tab=t.dataset.tab;V.rejecting=null;V.person=null;render();return}
   const pt=e.target.closest('[data-part]');if(pt){V.sel.set(pt.dataset.part,pt.dataset.v);paint();renderPick();return}
-  const hb=e.target.closest('[data-hours]');if(hb){V.pf.hours=+hb.dataset.hours;render();return}
+  const hb=e.target.closest('[data-hours]');if(hb){V.pf.hours=+hb.dataset.hours;if(V.pf.hours!==2)V.pf.split=false;render();return}
+  const sb=e.target.closest('[data-split]');if(sb){V.pf.split=sb.dataset.split==='1';render();return}
   const a=e.target.closest('[data-act]');if(!a)return;
   const act_=a.dataset.act,id=a.dataset.id,emp=a.dataset.emp,val=s=>document.getElementById(s)?.value;
   switch(act_){
@@ -1053,8 +1093,10 @@ document.addEventListener('click',e=>{
     case'no':V.rejecting=id;render();document.getElementById('why')?.focus();break;
     case'noCancel':V.rejecting=null;render();break;
     case'noOk':decide(id,false,(val('why')||'').trim());break;
-    case'confirmRep':{const x=findX(id);if(!x||!canConfirm(x))return;if(!G.listIds.reposiciones){toast('Falta crear la lista "Reposiciones" en SharePoint.');return}
-      if(!armed(a,'¿Confirmas? Toca otra vez'))return;act(()=>addItem('reposiciones',{Title:x.id,PermisoId:+x.spId}),`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
+    case'confirmRep':{const x=findX(id),b=x&&x.reps.find(q=>q.n===(+a.dataset.blk||1));if(!b||!canConfirmBlk(x,b))return;if(!G.listIds.reposiciones){toast('Falta crear la lista "Reposiciones" en SharePoint.');return}
+      if(b.n===2&&!G.repCols.has('Bloque')){toast('Falta la columna Bloque en Reposiciones. Pide a RH que abra el sistema y vuelve a intentarlo.');return}
+      if(!armed(a,'¿Confirmas? Toca otra vez'))return;const rest=x.reps.filter(q=>q!==b&&!q.done).length;
+      act(()=>addItem('reposiciones',{Title:x.reps.length>1?`${x.id}-${b.n}`:x.id,PermisoId:+x.spId,...(b.n>1?{Bloque:b.n}:{})}),rest?`Listo. Queda pendiente la otra hora de ${who(x.emp).name}.`:`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
     case'exportToggle':V.exporting=!V.exporting;V.importing=false;render();break;
     case'importToggle':V.importing=!V.importing;V.exporting=false;render();break;
     case'importPreview':{V.importRows=parseImport(val('imp')||'');V.importText=val('imp')||'';render();break}
@@ -1096,7 +1138,7 @@ document.addEventListener('click',e=>{
   }
 });
 document.addEventListener('input',e=>{if(e.target.id==='vnote'){V.vnote=e.target.value;return}
-  const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart')?+e.target.value:e.target.value;if(k==='motive'){render();return}const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
+  const k=e.target.dataset?.pf;if(!k)return;V.pf[k]=(k==='start'||k==='repStart'||k==='rep2Start')?+e.target.value:e.target.value;if(k==='motive'){render();return}const[ok,msg]=pCheck(V.pf),pv=document.getElementById('pprev');if(pv){pv.innerHTML=msg;pv.className='preview'+(ok?'':' bad')}const ps=document.getElementById('psend');if(ps)ps.disabled=!ok});
 document.addEventListener('change',e=>{if(e.target.id==='teamView'){V.team=e.target.value;render()}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&V.picker){V.picker=null;render()}});
 /* ---------- No perder lo que se está escribiendo ----------
@@ -1155,7 +1197,7 @@ async function boot(){
   if(dr&&me().role==='rh'){V.tab=dr.tab||V.tab;V.adding=!!dr.adding;V.person=dr.person&&who(dr.person)?dr.person:null;V.importing=!!dr.importing}
   render();
   if(dr&&me().role==='rh'&&dr.ctx===draftCtx()){restoreForm(dr.vals);toast('Recuperamos lo que estabas escribiendo.')}
-  calSync();
+  calSync();ensureCols();
 }
 boot();
 
