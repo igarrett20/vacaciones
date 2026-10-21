@@ -948,7 +948,7 @@ async function polExcel(p){
 }
 
 /* ======================= Capacitaciones (video + examen) ======================= */
-const CAPMIN=70;
+const CAPMIN=85;
 const QT=[['tf','Verdadero / Falso'],['one','Opción única'],['multi','Selección múltiple']];
 function capsLoad(cl,ck,ca){
   S.caps=cl.map(i=>{const f=i.fields;let r=[];try{r=JSON.parse(f.Rondas||'[]')}catch(e){}
@@ -1578,6 +1578,7 @@ function loadXLSX(){return window.XLSX?Promise.resolve():new Promise((ok,no)=>{c
 const ESTADO_TXT={jefatura:'Con jefatura',rh:'Con RH',ok:'Aprobada',no:'Rechazada',cancel:'Cancelada'};
 const PARTE_TXT={full:'Día completo',am:'Mañana (8 a 12)',pm:'Tarde (1 a 5)'};
 const xd=k=>k?new Date(k+'T12:00:00'):'';
+const xdc=ms=>ms?xd(K(new Date(ms))):'';  /* fecha en que se hizo la solicitud */
 /* Color por empresa en las hojas de planilla (clarito, solo de fondo) */
 const EMP_COLOR={garrett:{rgb:'DCEEF2',name:'Garrett'},aura:{rgb:'FCEFD6',name:'Aura'}};
 const empKey=p=>String(p?.company||'').trim().toLowerCase();
@@ -1611,9 +1612,9 @@ async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
   S.reqs.filter(r=>r.status!=='no'&&r.status!=='cancel').forEach(r=>{const p=who(r.emp);const days=[...r.days].sort((a,b)=>a.k.localeCompare(b.k));
     let paidLeft=total(days)-(r.unpaid||0);
     days.forEach(d=>{const v=dv(d.p),paid=Math.max(0,Math.min(v,paidLeft));paidLeft-=paid;
-      vac.push({'Nombre':p?.name||r.emp,'Empresa':p?.company||'','Número de empleado':p?.empNo||'','Departamento':p?.dept||'','Fecha':xd(d.k),'Tipo':PARTE_TXT[d.p]||d.p,'Días':v,'Con goce':paid,'Sin goce':v-paid,'Estado':ESTADO_TXT[r.status]||r.status})})});
+      vac.push({'Nombre':p?.name||r.emp,'Empresa':p?.company||'','Número de empleado':p?.empNo||'','Departamento':p?.dept||'','Fecha':xd(d.k),'Fecha solicitado':xdc(r.created),'Tipo':PARTE_TXT[d.p]||d.p,'Días':v,'Con goce':paid,'Sin goce':v-paid,'Estado':ESTADO_TXT[r.status]||r.status})})});
   vac.sort((a,b)=>a.Fecha-b.Fecha||a.Nombre.localeCompare(b.Nombre));
-  const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),
+  const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),'Fecha solicitado':xdc(x.created),
     'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.reps[0]?.k),'Hora reposición':x.reps[0]?`${hhmm(x.reps[0].start)} a ${hhmm(x.reps[0].start+x.reps[0].h)}`:'','Repone (2.ª hora)':x.reps[1]?xd(x.reps[1].k):'','Hora reposición (2.ª hora)':x.reps[1]?`${hhmm(x.reps[1].start)} a ${hhmm(x.reps[1].start+1)}`:'','Repuesto':x.repaid?'Sí':x.reps.some(b=>b.done)?'1 de 2 horas':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
   const vacD=vac.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b}),permD=perm.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b});
   const pl=payrollSheets(a,b),PCOL=['Empleado','Unidad Operativa','Rige desde','Dias','Afecta planilla','Valor','Campo total dias','Descripcion'];
@@ -1636,8 +1637,8 @@ async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
   };
   addPl(pl.vac,'Vacaciones');addPl(pl.con,'Permisos con goce');addPl(pl.sin,'Permisos sin goce');
   add(saldos,'Saldos',['Nombre','Correo','Empresa','Número de empleado','Unidad operativa','Departamento','Perfil','Jefatura','Activo','Fecha de ingreso','Días ganados','Días tomados','En aprobación','Disponibles','Días sin goce (aprobados)','Horas por reponer']);
-  add(vacD,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Tipo','Días','Con goce','Sin goce','Estado']);
-  add(permD,'Detalle permisos',['Nombre','Departamento','Fecha','Horario','Horas','Motivo','Repone','Hora reposición','Repone (2.ª hora)','Hora reposición (2.ª hora)','Repuesto','Estado']);
+  add(vacD,'Vacaciones por día',['Nombre','Empresa','Número de empleado','Departamento','Fecha','Fecha solicitado','Tipo','Días','Con goce','Sin goce','Estado']);
+  add(permD,'Detalle permisos',['Nombre','Departamento','Fecha','Fecha solicitado','Horario','Horas','Motivo','Repone','Hora reposición','Repone (2.ª hora)','Hora reposición (2.ª hora)','Repuesto','Estado']);
   XLSX.writeFile(wb,`Planilla vacaciones y permisos ${a} a ${b}.xlsx`);toast('Excel descargado.');
 }
 
