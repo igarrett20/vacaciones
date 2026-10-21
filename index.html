@@ -411,6 +411,15 @@ a.btn{text-decoration:none;display:inline-block}
 .qo{display:flex;gap:10px;align-items:center}.qo>input[type=radio],.qo>input[type=checkbox]{width:18px;height:18px;accent-color:var(--brand);flex:none;margin:0}
 .qo input[data-qo]{flex:1}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.aud{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:6px;background:var(--sunk)}
+.aud-h{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}.aud-h span#audN{font-size:13px;color:var(--muted)}
+.aud-b{margin-left:auto;display:flex;gap:12px}
+.aud-q{margin-bottom:10px}
+.aud-list{max-height:280px;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 14px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.aud-i{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:14px;cursor:pointer;min-width:0}
+.aud-i[hidden]{display:none}.aud-i input{width:17px;height:17px;accent-color:var(--brand);flex:none;margin:0}
+.aud-i span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.aud-i small{color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
+@media (max-width:640px){.aud-list{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -503,15 +512,16 @@ async function gx(method,path,body){
   return j;
 }
 /* Crea en SharePoint las columnas nuevas que falten. Solo lo intenta RH (necesita poder administrar las listas). */
-const NEW_COLS={permisos:[{name:'FechaReposicion2',dateTime:{format:'dateOnly'}},{name:'HoraReposicion2',text:{}}],reposiciones:[{name:'Bloque',number:{}}]};
+const NEW_COLS={permisos:[{name:'FechaReposicion2',dateTime:{format:'dateOnly'}},{name:'HoraReposicion2',text:{}}],reposiciones:[{name:'Bloque',number:{}}],
+  politicas:[{name:'Excluidos',text:{allowMultipleLines:true}}],capacitaciones:[{name:'Excluidos',text:{allowMultipleLines:true}}]};
 /* Listas que la página crea sola si no existen (las de políticas y capacitaciones se agregan en sus partes) */
 const NEW_LISTS={reposiciones:{name:'Reposiciones',columns:[{name:'PermisoId',number:{}},{name:'Bloque',number:{}}]},
   biblioteca:{name:'Politicas internas',library:true,drive:'polDrive',columns:[]},
   capvideos:{name:'Capacitaciones videos',library:true,drive:'capDrive',columns:[]},
-  capacitaciones:{name:'Capacitaciones',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'VideoId',text:{}},{name:'VideoNombre',text:{}},{name:'VideoUrl',text:{}},{name:'DuracionMin',number:{}},{name:'NotaMinima',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}},{name:'Rondas',text:{allowMultipleLines:true}}]},
+  capacitaciones:{name:'Capacitaciones',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'VideoId',text:{}},{name:'VideoNombre',text:{}},{name:'VideoUrl',text:{}},{name:'DuracionMin',number:{}},{name:'NotaMinima',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}},{name:'Rondas',text:{allowMultipleLines:true}},{name:'Excluidos',text:{allowMultipleLines:true}}]},
   claves:{name:'ClavesExamen',columns:[{name:'CapacitacionId',number:{}},{name:'Ronda',number:{}},{name:'Clave',text:{allowMultipleLines:true}}]},
   avance:{name:'AvanceCapacitaciones',columns:[{name:'CapacitacionId',number:{}},{name:'Ronda',number:{}},{name:'Tipo',text:{}},{name:'Respuestas',text:{allowMultipleLines:true}},{name:'Nota',number:{}},{name:'Aprobado',boolean:{}},{name:'Calificado',boolean:{}}]},
-  politicas:{name:'Politicas',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'ArchivoId',text:{}},{name:'ArchivoNombre',text:{}},{name:'Paginas',number:{}},{name:'Partes',number:{}},{name:'SegundosPagina',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}}]},
+  politicas:{name:'Politicas',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'ArchivoId',text:{}},{name:'ArchivoNombre',text:{}},{name:'Paginas',number:{}},{name:'Partes',number:{}},{name:'SegundosPagina',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}},{name:'Excluidos',text:{allowMultipleLines:true}}]},
   lecturas:{name:'LecturasPoliticas',columns:[{name:'PoliticaId',number:{}},{name:'Parte',number:{}},{name:'Segundos',number:{}}]}};
 /* Fija una lista en el menú de la izquierda del sitio (Quick Launch). Usa el permiso de SharePoint AllSites.Manage. */
 async function addQuickLaunch(title,url){
@@ -528,7 +538,7 @@ async function ensureList(tk,key){
   if(!r.ok){console.warn('No se pudo crear la lista',d.name,await r.text());return}
   const j=await r.json();G.listIds[key]=j.id;console.info('Lista creada:',d.name);
   await addQuickLaunch(d.name,j.webUrl);
-  if(key==='reposiciones')G.repCols=new Set(d.columns.map(c=>c.name));
+  G.cols=G.cols||{};G.cols[key]=new Set(d.columns.map(c=>c.name));if(key==='reposiciones')G.repCols=G.cols[key];if(key==='permisos')G.permCols=G.cols[key];
   if(d.library)G[d.drive]=(await gx('GET',`/sites/${G.siteId}/lists/${j.id}/drive?$select=id`)).id;
 }
 async function ensureCols(){
@@ -537,7 +547,7 @@ async function ensureCols(){
   const before=Object.keys(NEW_LISTS).filter(k=>!G.listIds[k]).length;
   for(const key of Object.keys(NEW_LISTS))await ensureList(tk,key);
   if(before&&Object.keys(NEW_LISTS).every(k=>G.listIds[k])){await loadAll();render();toast('Listo: se crearon las listas nuevas en SharePoint.')}
-  for(const [key,cols] of Object.entries(NEW_COLS)){if(!G.listIds[key])continue;const have=key==='permisos'?G.permCols:G.repCols;
+  for(const [key,cols] of Object.entries(NEW_COLS)){if(!G.listIds[key])continue;const have=(G.cols[key]=G.cols[key]||new Set());
     for(const c of cols){if(have.has(c.name))continue;
       const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${G.siteId}/lists/${G.listIds[key]}/columns`,{method:'POST',headers:{Authorization:'Bearer '+tk,'Content-Type':'application/json'},body:JSON.stringify({...c,displayName:c.name})});
       if(r.ok){have.add(c.name);console.info('Columna creada:',key,c.name)}else console.warn('No se pudo crear la columna',key,c.name,await r.text())}}
@@ -580,16 +590,18 @@ async function connect(){
   }
   /* Lista opcional donde la jefatura confirma reposiciones de permisos */
   for(const [key,d] of Object.entries(NEW_LISTS)){const r=ls.find(l=>lc(l.displayName)===lc(d.name));if(r)G.listIds[key]=r.id}
-  for(const [key,d] of Object.entries(NEW_LISTS))if(d.library&&G.listIds[key]){try{G[d.drive]=(await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[key]}/drive?$select=id`)).id}catch(e){console.warn('Biblioteca',d.name,e)}}
-  /* Columnas opcionales de Personal (Empresa, NumeroEmpleado, UnidadOperativa): solo se guardan si existen en SharePoint */
-  try{G.pcols=new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds.personal}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){G.pcols=new Set()}
-  /* Columnas para reponer un permiso de 2 h en dos partes */
-  const colsOf=async key=>{try{return new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[key]}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){return new Set()}};
-  G.permCols=await colsOf('permisos');G.repCols=G.listIds.reposiciones?await colsOf('reposiciones'):new Set();
+  /* Columnas opcionales (Personal: Empresa, NumeroEmpleado, UnidadOperativa; Permisos: reposición en dos partes) — todo a la vez */
+  const colsOf=async key=>{if(!G.listIds[key])return new Set();try{return new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[key]}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){return new Set()}};
+  const ck=['permisos','reposiciones','politicas','capacitaciones'],cs=await Promise.all([colsOf('personal'),...ck.map(colsOf)]);
+  G.pcols=cs[0];G.cols={};ck.forEach((k,i)=>G.cols[k]=cs[i+1]);G.permCols=G.cols.permisos;G.repCols=G.cols.reposiciones;
+  /* Bibliotecas de políticas y capacitaciones: se buscan por detrás, solo se usan al abrir un PDF o un video */
+  G.drivesReady=Promise.all(Object.entries(NEW_LISTS).filter(([k,d])=>d.library&&G.listIds[k]).map(async([k,d])=>{try{G[d.drive]=(await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[k]}/drive?$select=id`)).id}catch(e){console.warn('Biblioteca',d.name,e)}}));
 }
 async function loadAll(){
   const opt=k=>G.listIds[k]?allItems(k):Promise.resolve([]);
-  const [pe,so,pm,fe,rp,pl,lp,cl,ck,ca]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),opt('reposiciones'),opt('politicas'),opt('lecturas'),opt('capacitaciones'),opt('claves').catch(()=>[]),opt('avance')]);
+  /* Políticas y capacitaciones se piden al mismo tiempo, pero solo se esperan si estás en esa sección */
+  const extra=Promise.all([opt('politicas'),opt('lecturas'),opt('capacitaciones'),opt('claves').catch(()=>[]),opt('avance')]);extra.catch(()=>{});
+  const [pe,so,pm,fe,rp]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),opt('reposiciones')]);
   const people=pe.map(i=>{const f=i.fields;return{
     spId:i.id,id:lc(f.Correo),email:lc(f.Correo),name:f.Title||'(sin nombre)',dept:f.Departamento||'',role:ROLE_IN[f.Perfil]||'colab',
     boss:lc(f.JefaturaCorreo)||null,start:rd(f.FechaIngreso)||TK,prior:+f.DiasPrevios||0,
@@ -601,7 +613,8 @@ async function loadAll(){
   const perms=pm.map(i=>{const f=i.fields;return{id:'P'+i.id,spId:i.id,emp:lc(f.EmpleadoCorreo),k:rd(f.Fecha),start:fromHHMM(f.HoraSalida),hours:+f.Horas||1,motive:f.Motivo||'',
     repK:rd(f.FechaReposicion),repStart:fromHHMM(f.HoraReposicion),rep2K:f.FechaReposicion2?rd(f.FechaReposicion2):null,rep2Start:f.HoraReposicion2?fromHHMM(f.HoraReposicion2):null,status:EST_IN[f.Estado]||'jefatura',repaid:f.Repuesto===true,boss:lc(f.JefaturaCorreo)||null,reason:f.Comentario||'',created:Date.parse(i.createdDateTime)||0}});
   const hol={},holIds={};fe.forEach(i=>{const k=rd(i.fields.Fecha);if(k){hol[k]=i.fields.Title||'Feriado';holIds[k]=i.id}});
-  S={people,reqs,perms,hol,holIds,all:people};
+  const keep=S?{pols:S.pols,reads:S.reads,caps:S.caps,keys:S.keys,adv:S.adv}:{};
+  S={people,reqs,perms,hol,holIds,all:people,...keep};
   S.people=people.filter(p=>p.active);
   /* Reposiciones: cuenta como repuesto si lo confirmó su jefatura (o RH si la persona no tiene jefatura).
      Se valida con quien CREÓ la confirmación en SharePoint, no con lo que diga el texto. */
@@ -609,7 +622,9 @@ async function loadAll(){
   perms.forEach(x=>{const sp=x.repaid;x.reps=repsOf(x);
     x.reps.forEach(b=>{b.conf=confs.find(c=>c.permId===String(x.spId)&&c.block===b.n&&confOK(c,x))||null;b.done=sp||!!b.conf});
     x.repaid=x.reps.length?x.reps.every(b=>b.done):sp;x.conf=x.reps.map(b=>b.conf).filter(Boolean).at(-1)||null});
-  polsLoad(pl,lp);capsLoad(cl,ck,ca);
+  G.extraP=extra;
+  if(V.sec==='pol')applyExtra(await extra);
+  else extra.then(v=>{applyExtra(v);extraPainted()}).catch(e=>console.warn('Políticas y capacitaciones:',e));
   G.loadedAt=Date.now();
   setTimeout(calSync,500);
 }
@@ -807,9 +822,32 @@ function alertHTML(u,b){
 
 /* ======================= Gestión de políticas internas ======================= */
 const POL={sec:15,parts:6};
+/* Cuando llegan las políticas y capacitaciones por detrás: solo se actualiza la insignia, sin volver a dibujar la pantalla */
+function applyExtra(v){polsLoad(v[0],v[1]);capsLoad(v[2],v[3],v[4]);G.extraOk=true}
+function extraPainted(){if(V.sec==='pol'){if(!busy)render();return}const b=document.querySelector('[data-sec="pol"]');if(!b)return;const pc=polPendCount()+capPendCount();let i=b.querySelector('b');
+  if(pc){if(!i){i=document.createElement('b');b.appendChild(i)}i.textContent=pc}else if(i)i.remove()}
+/* Personas a las que NO se les envía una política o capacitación */
+const exclOf=f=>{try{const a=JSON.parse(f.Excluidos||'[]');return Array.isArray(a)?a.map(lc):[]}catch(e){return[]}};
+const polAud=p=>S.people.filter(x=>!(p.excl||[]).includes(x.id));
+const inAud=(p,pid)=>!(p.excl||[]).includes(pid);
+function audHTML(excl){
+  const ppl=[...S.people].sort((a,b)=>(a.dept||'').localeCompare(b.dept||'')||a.name.localeCompare(b.name)),n=ppl.filter(x=>!excl.has(x.id)).length;
+  return `<div class="aud"><div class="aud-h"><strong>¿A quién se le envía?</strong><span id="audN">${n} de ${ppl.length} personas</span><span class="aud-b"><button type="button" class="lnk" data-act="audAll">Todos</button><button type="button" class="lnk" data-act="audNone">Ninguno</button></span></div>
+    <input class="aud-q" data-audq placeholder="Buscar por nombre o departamento" aria-label="Buscar persona">
+    <div class="aud-list">${ppl.map(x=>`<label class="aud-i" data-audn="${esc((x.name+' '+(x.dept||'')).toLowerCase())}"><input type="checkbox" data-aud="${esc(x.id)}" ${excl.has(x.id)?'':'checked'}><span>${esc(x.name)}</span><small>${esc(x.dept||'')}</small></label>`).join('')}</div>
+    <p class="small muted" style="margin:8px 0 0">Están todos marcados. Quita a quienes no participan.</p></div>`;
+}
+const audSet=()=>V.polNew?V.polExcl:V.capEd&&!V.capEd.roundOf?V.capEd.excl:V.audEd?.excl;
+function audCount(){const set=audSet(),el=document.getElementById('audN');if(set&&el)el.textContent=`${S.people.filter(x=>!set.has(x.id)).length} de ${S.people.length} personas`}
+document.addEventListener('change',e=>{const id=e.target.dataset?.aud;if(id==null)return;const set=audSet();if(!set)return;if(e.target.checked)set.delete(id);else set.add(id);audCount()});
+document.addEventListener('input',e=>{if(e.target.dataset?.audq==null)return;const q=e.target.value.trim().toLowerCase();document.querySelectorAll('.aud-i').forEach(l=>l.hidden=!!q&&!l.dataset.audn.includes(q))});
+function exclField(kind,set){if(!G.cols?.[kind]?.has('Excluidos')){if(set.size)throw new Error('Falta la columna Excluidos en SharePoint. Recarga la página como RH para que se cree y vuelve a intentarlo.');return{}}return{Excluidos:JSON.stringify([...set])}}
+function vAudEdit(){const a=V.audEd,it=(a.kind==='politicas'?S.pols:S.caps).find(x=>x.id===a.id);
+  return `<button class="lnk" data-act="audCancel">‹ Volver</button><div class="box" style="max-width:660px;margin-top:12px"><h2 style="margin-top:0">Destinatarios de “${esc(it?.title||'')}”</h2>${audHTML(a.excl)}
+    <div style="display:flex;gap:8px;margin-top:16px"><button class="btn primary" data-act="audSave">Guardar</button><button class="btn" data-act="audCancel">Cancelar</button></div></div>`}
 function polsLoad(pl,lp){
   S.pols=pl.map(i=>{const f=i.fields,pg=+f.Paginas||1;return{id:'L'+i.id,spId:i.id,title:f.Title||'(sin nombre)',desc:f.Descripcion||'',fileId:f.ArchivoId||'',fileName:f.ArchivoNombre||'',
-    pages:pg,parts:Math.max(1,Math.min(+f.Partes||POL.parts,pg)),secs:+f.SegundosPagina||POL.sec,status:f.Estado||'Borrador',start:f.FechaInicio||'',created:Date.parse(i.createdDateTime)||0}}).sort((a,b)=>b.created-a.created);
+    pages:pg,parts:Math.max(1,Math.min(+f.Partes||POL.parts,pg)),secs:+f.SegundosPagina||POL.sec,status:f.Estado||'Borrador',start:f.FechaInicio||'',excl:exclOf(f),created:Date.parse(i.createdDateTime)||0}}).sort((a,b)=>b.created-a.created);
   S.reads=lp.map(i=>({spId:i.id,pol:String(i.fields.PoliticaId??''),part:+i.fields.Parte||0,by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:i.createdDateTime||''}));
 }
 /* Lecturas válidas de una persona: solo cuentan las que creó su propia cuenta */
@@ -818,19 +856,21 @@ function polState(p,pid){const rs=polReads(p,pid),fin=rs.find(r=>r.part===0),par
 const polRanges=p=>{const n=p.parts,T=p.pages||1,out=[];let a=1;for(let i=0;i<n;i++){const len=Math.floor(T/n)+(i<T%n?1:0);out.push([a,a+len-1]);a+=len}return out};
 const dtF=v=>v?fD(rd(v)):'';
 const polPill=p=>p.status==='Activa'?'<span class="pill ok">Activa</span>':p.status==='Cerrada'?'<span class="pill cancel">Cerrada</span>':'<span class="pill jefatura">Borrador</span>';
-const polPendCount=()=>{const u=me();return u?(S.pols||[]).filter(p=>p.status==='Activa'&&!polState(p,u.id).done).length:0};
+const polPendCount=()=>{const u=me();return u?(S.pols||[]).filter(p=>p.status==='Activa'&&inAud(p,u.id)&&!polState(p,u.id).done).length:0};
 
 function vPol(){
   const u=me(),isRH=u.role==='rh';
   if(V.read)return vReader();
   if(V.cap)return vCapPlay();
+  if(V.audEd)return vAudEdit();
+  if(!G.extraOk&&G.listIds.politicas)return '<div class="soon"><div class="spin" aria-hidden="true"></div><p>Cargando políticas y capacitaciones…</p></div>';
   if(!G.listIds.politicas)return `<div class="soon"><h2>Gestión de políticas internas</h2><p>${isRH?'Las listas de políticas todavía no existen. Se crean solas cuando RH abre el sistema; recarga la página en un momento.':'Aquí vas a encontrar las políticas internas para leer y las capacitaciones con su examen. Muy pronto.'}</p></div>`;
   const T=[['mine','Mis políticas',polPendCount()],['caps','Mis capacitaciones',capPendCount()],...(isRH?[['admin','Administrar políticas'],...(G.listIds.capacitaciones?[['capadmin','Administrar capacitaciones']]:[])]:[])];
   if(!T.some(t=>t[0]===V.polTab))V.polTab='mine';
   return `<nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.polTab===id}" data-ptab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>`+({admin:vPolAdmin,caps:vCapMine,capadmin:vCapAdmin}[V.polTab]||vPolMine)();
 }
 function vPolMine(){
-  const u=me(),act=(S.pols||[]).filter(p=>p.status==='Activa').map(p=>({p,st:polState(p,u.id)}));
+  const u=me(),act=(S.pols||[]).filter(p=>p.status==='Activa'&&inAud(p,u.id)).map(p=>({p,st:polState(p,u.id)}));
   const pend=act.filter(x=>!x.st.done),done=(S.pols||[]).filter(p=>p.status!=='Borrador').map(p=>({p,st:polState(p,u.id)})).filter(x=>x.st.done);
   return `<h2 class="ph2">Pendientes de leer</h2>${pend.length?`<div class="pcards">${pend.map(({p,st})=>`<div class="pcard"><div class="pc-main"><h3>${esc(p.title)}</h3>${p.desc?`<p>${esc(p.desc)}</p>`:''}
       <div class="pbar"><i style="width:${st.read/p.parts*100}%"></i></div><small>${st.read?(st.read>=p.parts?'Solo falta confirmar que la leíste':`Vas en la parte ${st.read+1} de ${p.parts}`):`${p.parts} ${p.parts===1?'parte':'partes'} · ${p.pages} páginas · unos ${Math.max(1,Math.ceil(p.pages*p.secs/60))} min`}</small></div>
@@ -840,9 +880,9 @@ function vPolMine(){
 function vPolAdmin(){
   if(V.polNew)return vPolNew();
   if(V.polDet){const p=(S.pols||[]).find(x=>x.id===V.polDet);if(p)return vPolDetail(p);V.polDet=null}
-  const n=S.people.length,rows=(S.pols||[]).map(p=>({p,d:p.status==='Borrador'?0:S.people.filter(x=>polState(p,x.id).done).length}));
+  const rows=(S.pols||[]).map(p=>{const au=polAud(p);return{p,n:au.length,d:p.status==='Borrador'?0:au.filter(x=>polState(p,x.id).done).length}});
   return `<div class="phead"><div><h2 class="ph2" style="margin:0">Políticas internas</h2><p class="small muted" style="margin:2px 0 0">Sube el PDF, revísalo con “Probar como colaborador” y cuando esté listo tócale Empezar.</p></div><button class="btn primary" data-act="polNew">Nueva política</button></div>
-  ${rows.length?`<div class="tbl"><table class="ptab"><thead><tr><th>Política</th><th>Estado</th><th>Inicio</th><th style="width:32%">Lectura</th><th></th></tr></thead><tbody>${rows.map(({p,d})=>`<tr class="click" data-act="polOpen" data-id="${p.id}"><td><strong>${esc(p.title)}</strong><small>${p.pages} páginas · ${p.parts} ${p.parts===1?'parte':'partes'}</small></td><td>${polPill(p)}</td><td>${p.start?dtF(p.start):'—'}</td>
+  ${rows.length?`<div class="tbl"><table class="ptab"><thead><tr><th>Política</th><th>Estado</th><th>Inicio</th><th style="width:32%">Lectura</th><th></th></tr></thead><tbody>${rows.map(({p,n,d})=>`<tr class="click" data-act="polOpen" data-id="${p.id}"><td><strong>${esc(p.title)}</strong><small>${p.pages} páginas · ${p.parts} ${p.parts===1?'parte':'partes'}</small></td><td>${polPill(p)}</td><td>${p.start?dtF(p.start):'—'}</td>
     <td>${p.status==='Borrador'?'<span class="small muted">Sin empezar</span>':`<div class="prog"><div class="pbar"><i style="width:${n?d/n*100:0}%"></i></div><span>${d} de ${n}</span></div>`}</td><td class="chev" aria-hidden="true">›</td></tr>`).join('')}</tbody></table></div>`
   :'<div class="soon"><h2>Todavía no hay políticas</h2><p>Crea la primera con el botón “Nueva política”.</p></div>'}`;
 }
@@ -853,18 +893,19 @@ function vPolNew(){
   <label class="f"><span>Archivo PDF</span><input id="polF" type="file" accept="application/pdf,.pdf"></label>
   <div class="two"><label class="f"><span>Se lee en cuántas partes</span><input id="polP" type="number" min="1" max="20" value="${POL.parts}"></label>
   <label class="f"><span>Segundos mínimos por página</span><input id="polS" type="number" min="5" max="120" value="${POL.sec}"></label></div>
-  <p class="note" style="margin:0 0 14px">Se guarda como borrador: nadie más la ve hasta que le toques Empezar.</p>
+  ${audHTML(V.polExcl)}
+  <p class="note" style="margin:14px 0">Se guarda como borrador: nadie más la ve hasta que le toques Empezar.</p>
   <div style="display:flex;gap:8px"><button class="btn primary" data-act="polSave">Guardar borrador</button><button class="btn" data-act="polCancel">Cancelar</button></div></div>`;
 }
 function vPolDetail(p){
-  const ppl=[...S.people].sort((a,b)=>a.name.localeCompare(b.name)),st=ppl.map(x=>({x,s:polState(p,x.id)}));
+  const ppl=polAud(p).sort((a,b)=>a.name.localeCompare(b.name)),st=ppl.map(x=>({x,s:polState(p,x.id)}));
   const done=st.filter(o=>o.s.done),prog=st.filter(o=>!o.s.done&&o.s.read),none=st.filter(o=>!o.s.done&&!o.s.read);
   const F=V.polF||'all',list=F==='done'?done:F==='prog'?prog:F==='none'?none:st;
   const days=p.start?Math.max(0,Math.round((P(TK)-P(rd(p.start)))/864e5)):0,pct=ppl.length?Math.round(done.length/ppl.length*100):0;
   return `<button class="lnk" data-act="polBack">‹ Todas las políticas</button>
   <div class="phead" style="margin-top:12px"><div><h2 class="ph2" style="margin:0">${esc(p.title)} ${polPill(p)}</h2>
     <p class="small muted" style="margin:4px 0 0">${p.desc?esc(p.desc)+' · ':''}${p.pages} páginas en ${p.parts} ${p.parts===1?'parte':'partes'} · mínimo ${p.secs} s por página${p.start?` · activa desde el ${dtF(p.start)} (${days} ${days===1?'día':'días'})`:''}</p></div>
-    <div class="pacts"><button class="btn" data-act="polTest" data-id="${p.id}">Probar como colaborador</button>${p.status==='Borrador'?`<button class="btn primary" data-act="polStart" data-id="${p.id}">Empezar</button>`:p.status==='Activa'?`<button class="btn" data-act="polClose" data-id="${p.id}">Cerrar</button>`:''}${p.status!=='Borrador'?`<button class="btn" data-act="polExcel" data-id="${p.id}">Descargar Excel</button>`:''}<button class="btn" style="color:var(--danger)" data-act="polDel" data-id="${p.id}">Eliminar</button></div></div>
+    <div class="pacts"><button class="btn" data-act="audEdit" data-kind="politicas" data-id="${p.id}">Destinatarios (${polAud(p).length})</button><button class="btn" data-act="polTest" data-id="${p.id}">Probar como colaborador</button>${p.status==='Borrador'?`<button class="btn primary" data-act="polStart" data-id="${p.id}">Empezar</button>`:p.status==='Activa'?`<button class="btn" data-act="polClose" data-id="${p.id}">Cerrar</button>`:''}${p.status!=='Borrador'?`<button class="btn" data-act="polExcel" data-id="${p.id}">Descargar Excel</button>`:''}<button class="btn" style="color:var(--danger)" data-act="polDel" data-id="${p.id}">Eliminar</button></div></div>
   ${p.status==='Borrador'?`<div class="pnote">Está en <strong>borrador</strong>: nadie más la ve. Usa <strong>Probar como colaborador</strong> para revisarla; esa prueba no queda registrada. Cuando esté lista, toca <strong>Empezar</strong> y les aparece a todos.</div>`:`
   <div class="psum"><div class="pbig"><strong>${pct}%</strong><span>${done.length} de ${ppl.length} completaron</span></div>
     <div class="pchips">${[['all','Todos',st.length],['done','Completaron',done.length],['prog','Leyendo',prog.length],['none','No han empezado',none.length]].map(([k,l,c])=>`<button type="button" data-polf="${k}" aria-pressed="${F===k}">${l}<b>${c}</b></button>`).join('')}</div></div>
@@ -876,7 +917,7 @@ function vPolDetail(p){
 /* ---------- Lector de PDF por partes ---------- */
 function loadPDFJS(){return window.pdfjsLib?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
   s.onload=()=>{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';ok()};s.onerror=()=>no(new Error('No se pudo cargar el lector de PDF.'));document.head.appendChild(s)})}
-async function polBytes(p){const it=await gx('GET',`/drives/${G.polDrive}/items/${p.fileId}`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('No se pudo descargar el PDF.');return r.arrayBuffer()}
+async function polBytes(p){await G.drivesReady;const it=await gx('GET',`/drives/${G.polDrive}/items/${p.fileId}`);const r=await fetch(it['@microsoft.graph.downloadUrl']);if(!r.ok)throw new Error('No se pudo descargar el PDF.');return r.arrayBuffer()}
 async function polDoc(p){if(G.pdf?.id===p.id)return G.pdf.doc;await loadPDFJS();const doc=await pdfjsLib.getDocument({data:new Uint8Array(await polBytes(p))}).promise;G.pdf={id:p.id,doc};return doc}
 function vReader(){
   const r=V.read,p=(S.pols||[]).find(x=>x.id===r.id),u=me();if(!p){V.read=null;return vPol()}
@@ -934,14 +975,16 @@ function polSave(){
   const g=id=>document.getElementById(id),t=(g('polT').value||'').trim(),f=g('polF').files[0],parts=Math.min(20,Math.max(1,+g('polP').value||POL.parts)),secs=Math.min(120,Math.max(5,+g('polS').value||POL.sec)),desc=(g('polD').value||'').trim();
   if(!t){toast('Ponle un nombre a la política.');return}
   if(!f||!(f.type==='application/pdf'||/\.pdf$/i.test(f.name))){toast('Elige un archivo PDF.');return}
-  if(!G.polDrive||!G.listIds.politicas){toast('Faltan las listas de políticas. Recarga la página.');return}
-  act(async()=>{await loadPDFJS();let pages;try{pages=(await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise).numPages}catch(e){throw new Error('El archivo no parece ser un PDF válido.')}
+  if(!G.listIds.politicas){toast('Faltan las listas de políticas. Recarga la página.');return}
+  if(S.people.every(x=>V.polExcl.has(x.id))){toast('Deja al menos una persona como destinataria.');return}
+  act(async()=>{await G.drivesReady;if(!G.polDrive)throw new Error('No encuentro la biblioteca Politicas internas.');await loadPDFJS();let pages;try{pages=(await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise).numPages}catch(e){throw new Error('El archivo no parece ser un PDF válido.')}
     const item=await uploadFile(G.polDrive,`${Date.now()}-${f.name.replace(/[^\w.\- ]+/g,'_')}`,f);
-    await addItem('politicas',{Title:t,Descripcion:desc,ArchivoId:item.id,ArchivoNombre:f.name,Paginas:pages,Partes:Math.min(parts,pages),SegundosPagina:secs,Estado:'Borrador'});
+    const ex=exclField('politicas',V.polExcl);
+    await addItem('politicas',{Title:t,Descripcion:desc,ArchivoId:item.id,ArchivoNombre:f.name,Paginas:pages,Partes:Math.min(parts,pages),SegundosPagina:secs,Estado:'Borrador',...ex});
     V.polNew=false;V.polDet=null},'Política guardada como borrador.');
 }
 async function polExcel(p){
-  await loadXLSX();const rows=[...S.people].sort((a,b)=>a.name.localeCompare(b.name)).map(x=>{const s=polState(p,x.id);
+  await loadXLSX();const rows=polAud(p).sort((a,b)=>a.name.localeCompare(b.name)).map(x=>{const s=polState(p,x.id);
     return{'Nombre':x.name,'Correo':x.email,'Departamento':x.dept||'','Empresa':x.company||'','Estado':s.done?'Completó':s.read?`Leyendo (${s.read} de ${p.parts} partes)`:'No ha empezado','Fecha de aceptación':s.done?xd(rd(s.at)):''}});
   const ws=XLSX.utils.json_to_sheet(rows,{dateNF:'dd/mm/yyyy'});ws['!cols']=[{wch:30},{wch:32},{wch:22},{wch:12},{wch:26},{wch:18}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Lectura');XLSX.writeFile(wb,`Lectura - ${p.title.replace(/[\\/:*?"<>|]/g,'').slice(0,80)}.xlsx`);
@@ -953,13 +996,13 @@ const QT=[['tf','Verdadero / Falso'],['one','Opción única'],['multi','Selecci�
 function capsLoad(cl,ck,ca){
   S.caps=cl.map(i=>{const f=i.fields;let r=[];try{r=JSON.parse(f.Rondas||'[]')}catch(e){}
     return{id:'C'+i.id,spId:i.id,title:f.Title||'(sin nombre)',desc:f.Descripcion||'',videoId:f.VideoId||'',videoName:f.VideoNombre||'',link:f.VideoUrl||'',dur:+f.DuracionMin||0,
-      min:f.NotaMinima==null?CAPMIN:+f.NotaMinima,status:f.Estado||'Borrador',start:f.FechaInicio||'',rounds:Array.isArray(r)?r:[],created:Date.parse(i.createdDateTime)||0}}).sort((a,b)=>b.created-a.created);
+      min:f.NotaMinima==null?CAPMIN:+f.NotaMinima,status:f.Estado||'Borrador',start:f.FechaInicio||'',rounds:Array.isArray(r)?r:[],excl:exclOf(f),created:Date.parse(i.createdDateTime)||0}}).sort((a,b)=>b.created-a.created);
   S.keys=ck.map(i=>{let k=[];try{k=JSON.parse(i.fields.Clave||'[]')}catch(e){}return{spId:i.id,cap:String(i.fields.CapacitacionId??''),round:+i.fields.Ronda||1,key:k}});
   S.adv=ca.map(i=>{const f=i.fields;return{spId:i.id,cap:String(f.CapacitacionId??''),round:+f.Ronda||1,type:f.Tipo||'',score:f.Nota==null?null:+f.Nota,pass:f.Aprobado===true,graded:f.Calificado===true,
     by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:i.createdDateTime||''}});
 }
 const capMine=(c,pid)=>{const x=who(pid);return (S.adv||[]).filter(a=>a.cap===String(c.spId)&&(a.by===pid||(!a.by&&x&&a.byName===x.name)))};
-const capRoundsFor=(c,pid)=>c.rounds.filter(r=>r.para==='all'||(Array.isArray(r.para)&&r.para.includes(pid)));
+const capRoundsFor=(c,pid)=>c.rounds.filter(r=>r.para==='all'?inAud(c,pid):Array.isArray(r.para)&&r.para.includes(pid));
 function capState(c,pid){
   const rs=capRoundsFor(c,pid);if(!rs.length)return{st:'none'};
   const cur=rs.at(-1),mine=capMine(c,pid),ex=mine.find(a=>a.type==='examen'&&a.round===cur.n);
@@ -1018,7 +1061,7 @@ async function capMount(){
   if(document.querySelector('.spin')){let n=0;G.gpoll=setInterval(async()=>{if(!V.cap||++n>16){clearInterval(G.gpoll);return}try{await loadAll();if(capState(c,me().id).st!=='grading'){clearInterval(G.gpoll);render()}}catch(e){}},12000);return}
   const done=()=>{ok.disabled=false;if(bar)bar.style.width='100%';info.innerHTML='<span class="ok">Terminaste el video</span>'};
   if(v){const key=`gg-cap-${c.spId}-${k.round||1}-${V.user}`;let max=0;try{max=+localStorage.getItem(key)||0}catch(e){}
-    try{const it=await gx('GET',`/drives/${G.capDrive}/items/${c.videoId}`);v.src=it['@microsoft.graph.downloadUrl']}catch(e){info.textContent='No se pudo cargar el video: '+(e.message||e);return}
+    try{await G.drivesReady;const it=await gx('GET',`/drives/${G.capDrive}/items/${c.videoId}`);v.src=it['@microsoft.graph.downloadUrl']}catch(e){info.textContent='No se pudo cargar el video: '+(e.message||e);return}
     v.addEventListener('loadedmetadata',()=>{if(max>1&&max<v.duration-1)v.currentTime=max});
     v.addEventListener('timeupdate',()=>{if(!v.seeking&&v.currentTime>max&&v.currentTime-max<2)max=v.currentTime;if(v.duration){bar.style.width=Math.min(100,max/v.duration*100)+'%'}try{localStorage.setItem(key,String(max))}catch(e){}});
     v.addEventListener('seeking',()=>{if(v.currentTime>max+1)v.currentTime=max});
@@ -1055,7 +1098,7 @@ function vCapEditor(){
       <p class="note" style="margin:-4px 0 14px">Con archivo, la página no deja adelantar el video y sabe cuándo lo terminaron de ver.</p>`
       :`<div class="two"><label class="f"><span>Link del video</span><input data-cf="link" value="${esc(e.link)}" placeholder="https://…"></label><label class="f"><span>Duración (minutos)</span><input data-cf="dur" type="number" min="1" max="240" value="${esc(e.dur)}"></label></div>
       <p class="note" style="margin:-4px 0 14px">Con link no se puede saber si lo vieron completo. El examen se habilita cuando pasa el tiempo de la duración.</p>`}
-    <label class="f" style="max-width:220px"><span>Nota mínima para aprobar (%)</span><input data-cf="min" type="number" min="1" max="100" value="${esc(e.min)}"></label></div>`;
+    <label class="f" style="max-width:220px"><span>Nota mínima para aprobar (%)</span><input data-cf="min" type="number" min="1" max="100" value="${esc(e.min)}"></label>${audHTML(e.excl)}</div>`;
   return head+`<h2 class="ph2" style="margin:24px 0 12px">Preguntas${isRound?` nuevas (ronda ${e.n})`:''}</h2><div class="qedit">${e.qs.map((q,i)=>`<div class="qe"><div class="qe-top"><span class="qn">${i+1}</span>
       <select data-qf="type" data-qi="${i}" aria-label="Tipo de pregunta">${QT.map(([v,l])=>`<option value="${v}" ${q.type===v?'selected':''}>${l}</option>`).join('')}</select>
       <button class="lnk red" data-act="qDel" data-qi="${i}">Quitar</button></div>
@@ -1084,11 +1127,12 @@ const qPublic=qs=>qs.map(q=>({id:q.id,type:q.type,t:q.t.trim(),opts:q.type==='tf
 const qKey=qs=>qs.map(q=>({q:q.id,ok:okStr(q.ok)}));
 function capEdSave(){
   const e=V.capEd,err=capValidate(e,false);if(err){toast(err);return}
-  if(!G.listIds.capacitaciones||!G.listIds.claves||(e.mode==='file'&&!G.capDrive)){toast('Faltan las listas de capacitaciones. Recarga la página.');return}
-  act(async()=>{let vid=e.videoId,vname=e.videoName;
+  if(S.people.every(x=>e.excl.has(x.id))){toast('Deja al menos una persona como destinataria.');return}
+  if(!G.listIds.capacitaciones||!G.listIds.claves){toast('Faltan las listas de capacitaciones. Recarga la página.');return}
+  act(async()=>{await G.drivesReady;if(e.mode==='file'&&G.capFile&&!G.capDrive)throw new Error('No encuentro la biblioteca Capacitaciones videos.');let vid=e.videoId,vname=e.videoName;
     if(e.mode==='file'&&G.capFile){const f=G.capFile,it=await uploadFile(G.capDrive,`${Date.now()}-${f.name.replace(/[^\w.\- ]+/g,'_')}`,f);vid=it.id;vname=f.name}
     const rounds=[{n:1,para:'all',fecha:null,qs:qPublic(e.qs)}];
-    const fields={Title:e.title.trim(),Descripcion:(e.desc||'').trim(),VideoId:e.mode==='file'?vid:'',VideoNombre:e.mode==='file'?vname:'',VideoUrl:e.mode==='link'?e.link.trim():'',DuracionMin:e.mode==='link'?+e.dur:0,NotaMinima:+e.min,Rondas:JSON.stringify(rounds)};
+    const fields={...exclField('capacitaciones',e.excl),Title:e.title.trim(),Descripcion:(e.desc||'').trim(),VideoId:e.mode==='file'?vid:'',VideoNombre:e.mode==='file'?vname:'',VideoUrl:e.mode==='link'?e.link.trim():'',DuracionMin:e.mode==='link'?+e.dur:0,NotaMinima:+e.min,Rondas:JSON.stringify(rounds)};
     let id=e.spId;if(id)await setItem('capacitaciones',id,fields);else id=(await addItem('capacitaciones',{...fields,Estado:'Borrador'})).id;
     const kf={Title:`C${id}-R1`,CapacitacionId:+id,Ronda:1,Clave:JSON.stringify(qKey(e.qs))},old=S.keys.find(k=>k.cap===String(id)&&k.round===1);
     if(old)await setItem('claves',old.spId,kf);else await addItem('claves',kf);
@@ -1108,7 +1152,7 @@ function vCapDetail(c){
   return `<button class="lnk" data-act="capBack">‹ Todas las capacitaciones</button>
   <div class="phead" style="margin-top:12px"><div><h2 class="ph2" style="margin:0">${esc(c.title)} ${capPill(c)}</h2>
     <p class="small muted" style="margin:4px 0 0">${c.desc?esc(c.desc)+' · ':''}${c.videoId?'Video subido':'Video por link'} · ${nq} preguntas · mínimo ${pct(c.min)}${c.start?` · activa desde el ${dtF(c.start)} (${days} ${days===1?'día':'días'})`:''}</p></div>
-    <div class="pacts"><button class="btn" data-act="capTest" data-id="${c.id}">Probar como colaborador</button>${c.status==='Borrador'?`<button class="btn" data-act="capEdit" data-id="${c.id}">Editar</button><button class="btn primary" data-act="capStart" data-id="${c.id}">Empezar</button>`:c.status==='Activa'?`<button class="btn" data-act="capClose" data-id="${c.id}">Cerrar</button>`:''}${c.status!=='Borrador'?`<button class="btn" data-act="capExcel" data-id="${c.id}">Descargar Excel</button>`:''}<button class="btn" style="color:var(--danger)" data-act="capDel" data-id="${c.id}">Eliminar</button></div></div>
+    <div class="pacts"><button class="btn" data-act="audEdit" data-kind="capacitaciones" data-id="${c.id}">Destinatarios (${S.people.filter(x=>inAud(c,x.id)).length})</button><button class="btn" data-act="capTest" data-id="${c.id}">Probar como colaborador</button>${c.status==='Borrador'?`<button class="btn" data-act="capEdit" data-id="${c.id}">Editar</button><button class="btn primary" data-act="capStart" data-id="${c.id}">Empezar</button>`:c.status==='Activa'?`<button class="btn" data-act="capClose" data-id="${c.id}">Cerrar</button>`:''}${c.status!=='Borrador'?`<button class="btn" data-act="capExcel" data-id="${c.id}">Descargar Excel</button>`:''}<button class="btn" style="color:var(--danger)" data-act="capDel" data-id="${c.id}">Eliminar</button></div></div>
   ${c.status==='Borrador'?`<div class="pnote">Está en <strong>borrador</strong>: nadie más la ve. Usa <strong>Probar como colaborador</strong> para ver el video y hacer el examen; esa prueba no queda registrada. Cuando esté lista, toca <strong>Empezar</strong>.</div>`:`
   ${g.fail.length&&c.status==='Activa'?`<div class="pnote warn"><div><strong>${g.fail.length} ${g.fail.length===1?'persona reprobó':'personas reprobaron'}</strong> y ${g.fail.length===1?'espera':'esperan'} preguntas nuevas: ${esc(g.fail.map(o=>o.x.name).join(', '))}.</div><button class="btn primary" data-act="capRound" data-id="${c.id}">Crear ronda ${c.rounds.length+1}</button></div>`:''}
   <div class="psum"><div class="pbig"><strong>${p}%</strong><span>${g.pass.length} de ${st.length} aprobaron</span></div>
@@ -1693,7 +1737,7 @@ document.addEventListener('click',e=>{
   const mfe=e.target.closest('[data-mfe]');if(mfe){V.mf.e=mfe.dataset.mfe;V.mf.n=10;render();return}
   const t=e.target.closest('[data-tab]');if(t){V.tab=t.dataset.tab;V.rejecting=null;V.person=null;render();return}
   const pt=e.target.closest('[data-part]');if(pt){V.sel.set(pt.dataset.part,pt.dataset.v);paint();renderPick();return}
-  const sw=e.target.closest('[data-sec]');if(sw){V.sec=sw.dataset.sec;render();return}
+  const sw=e.target.closest('[data-sec]');if(sw){V.sec=sw.dataset.sec;render();if(V.sec==='pol'&&!G.extraOk)G.extraP?.then(v=>{applyExtra(v);render()}).catch(()=>{});return}
   const ptb=e.target.closest('[data-ptab]');if(ptb){V.polTab=ptb.dataset.ptab;V.polDet=null;V.polNew=false;render();return}
   const pfb=e.target.closest('[data-polf]');if(pfb){V.polF=pfb.dataset.polf;render();return}
   const cfb=e.target.closest('[data-capf]');if(cfb){V.capF=cfb.dataset.capf;render();return}
@@ -1723,9 +1767,9 @@ document.addEventListener('click',e=>{
       if(b.n===2&&!G.repCols.has('Bloque')){toast('Falta la columna Bloque en Reposiciones. Pide a RH que abra el sistema y vuelve a intentarlo.');return}
       if(!armed(a,'¿Confirmas? Toca otra vez'))return;const rest=x.reps.filter(q=>q!==b&&!q.done).length;
       act(()=>addItem('reposiciones',{Title:x.reps.length>1?`${x.id}-${b.n}`:x.id,PermisoId:+x.spId,...(b.n>1?{Bloque:b.n}:{})}),rest?`Listo. Queda pendiente la otra hora de ${who(x.emp).name}.`:`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
-    case'capNew':V.capEd={title:'',desc:'',mode:'file',link:'',dur:'',min:CAPMIN,qs:[newQ()]};G.capFile=null;render();window.scrollTo({top:0});break;
+    case'capNew':V.capEd={title:'',desc:'',mode:'file',link:'',dur:'',min:CAPMIN,qs:[newQ()],excl:new Set()};G.capFile=null;render();window.scrollTo({top:0});break;
     case'capEdit':{const c=S.caps.find(x=>x.id===id),key=S.keys.find(k=>k.cap===String(c.spId)&&k.round===1)?.key||[];
-      V.capEd={spId:c.spId,title:c.title,desc:c.desc,mode:c.link?'link':'file',link:c.link,dur:c.dur||'',min:c.min,videoId:c.videoId,videoName:c.videoName,
+      V.capEd={spId:c.spId,excl:new Set(c.excl),title:c.title,desc:c.desc,mode:c.link?'link':'file',link:c.link,dur:c.dur||'',min:c.min,videoId:c.videoId,videoName:c.videoName,
         qs:(c.rounds[0]?.qs||[]).map(q=>({id:q.id,type:q.type,t:q.t,opts:q.type==='tf'?[]:[...q.opts],ok:(key.find(k=>k.q===q.id)?.ok||'').split(',').filter(x=>x!=='').map(Number)}))};G.capFile=null;render();window.scrollTo({top:0});break}
     case'capRound':{const c=S.caps.find(x=>x.id===id),fail=S.people.filter(p=>capState(c,p.id).st==='fail').map(p=>p.id);
       V.capEd={roundOf:c.id,n:c.rounds.length+1,para:fail,qs:[newQ()]};render();window.scrollTo({top:0});break}
@@ -1757,9 +1801,15 @@ document.addEventListener('click',e=>{
     case'capDel':{const c=S.caps.find(x=>x.id===id);if(!armed(a,'¿Eliminar todo? Toca otra vez'))return;
       act(async()=>{for(const x of S.adv.filter(x=>x.cap===String(c.spId)))await delItem('avance',x.spId);
         for(const x of S.keys.filter(x=>x.cap===String(c.spId)))await delItem('claves',x.spId);
-        await delItem('capacitaciones',c.spId);if(c.videoId&&G.capDrive){try{await gx('DELETE',`/drives/${G.capDrive}/items/${c.videoId}`)}catch(e){console.warn('No se pudo borrar el video',e)}}
+        await delItem('capacitaciones',c.spId);await G.drivesReady;if(c.videoId&&G.capDrive){try{await gx('DELETE',`/drives/${G.capDrive}/items/${c.videoId}`)}catch(e){console.warn('No se pudo borrar el video',e)}}
         V.capDet=null},'Capacitación eliminada, con sus resultados y su video.');break}
-    case'polNew':V.polNew=true;render();break;
+    case'polNew':V.polNew=true;V.polExcl=new Set();render();break;
+    case'audAll':{const set=audSet();if(!set)break;set.clear();document.querySelectorAll('[data-aud]').forEach(x=>x.checked=true);audCount();break}
+    case'audNone':{const set=audSet();if(!set)break;S.people.forEach(x=>set.add(x.id));document.querySelectorAll('[data-aud]').forEach(x=>x.checked=false);audCount();break}
+    case'audEdit':{const kind=a.dataset.kind,it=(kind==='politicas'?S.pols:S.caps).find(x=>x.id===id);V.audEd={kind,id,excl:new Set(it.excl||[])};render();window.scrollTo({top:0});break}
+    case'audCancel':V.audEd=null;render();break;
+    case'audSave':{const A=V.audEd,it=(A.kind==='politicas'?S.pols:S.caps).find(x=>x.id===A.id);if(S.people.every(x=>A.excl.has(x.id))){toast('Deja al menos una persona.');return}
+      act(async()=>{await setItem(A.kind,it.spId,exclField(A.kind,A.excl));V.audEd=null},'Destinatarios guardados.');break}
     case'polCancel':V.polNew=false;render();break;
     case'polSave':polSave();break;
     case'polOpen':V.polDet=id;V.polF='all';render();window.scrollTo({top:0});break;
@@ -1781,7 +1831,7 @@ document.addEventListener('click',e=>{
     case'polExcel':{const p=S.pols.find(x=>x.id===id);polExcel(p).catch(e=>toast('No se pudo crear el Excel: '+e.message));break}
     case'polDel':{const p=S.pols.find(x=>x.id===id);if(!armed(a,'¿Eliminar todo? Toca otra vez'))return;
       act(async()=>{for(const r of S.reads.filter(r=>r.pol===String(p.spId)))await delItem('lecturas',r.spId);
-        await delItem('politicas',p.spId);if(p.fileId&&G.polDrive){try{await gx('DELETE',`/drives/${G.polDrive}/items/${p.fileId}`)}catch(e){console.warn('No se pudo borrar el PDF',e)}}
+        await delItem('politicas',p.spId);await G.drivesReady;if(p.fileId&&G.polDrive){try{await gx('DELETE',`/drives/${G.polDrive}/items/${p.fileId}`)}catch(e){console.warn('No se pudo borrar el PDF',e)}}
         V.polDet=null;if(G.pdf?.id===p.id)G.pdf=null},'Política eliminada, con sus lecturas y su PDF.');break}
     case'repToggle':{V.dash.repOpen=!V.dash.repOpen;const el=document.getElementById('repx'),dn=a.closest('.dcard')?.querySelector('.donut');
       if(el&&dn){const sv=dn.querySelector('svg').getBoundingClientRect(),er=el.getBoundingClientRect(),cx=sv.left+sv.width/2-er.left,cy=sv.top+sv.height/2-er.top,
@@ -1843,7 +1893,7 @@ const FORM_SEL='#app input[id],#app select[id],#app textarea[id]';
 function snapForm(){const o={};document.querySelectorAll(FORM_SEL).forEach(el=>{if(el.type!=='file')o[el.id]=el.type==='checkbox'?el.checked:el.value});return o}
 function restoreForm(o){if(!o)return;Object.entries(o).forEach(([id,v])=>{const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=v;else el.value=v});
   ['n','e'].forEach(pre=>{const c=document.getElementById(pre+'Calc');if(c&&typeof calcText==='function')c.innerHTML=calcText(pre,pre==='e'?who(V.person):null)})}
-function softRefresh(){if(V.read||V.polNew||V.cap||V.capEd)return Promise.resolve();const ae=document.activeElement,focusId=ae&&ae.id,snap=snapForm();
+function softRefresh(){if(V.read||V.polNew||V.cap||V.capEd||V.audEd)return Promise.resolve();const ae=document.activeElement,focusId=ae&&ae.id,snap=snapForm();
   return loadAll().then(()=>{render();restoreForm(snap);if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{const n=el.value.length;el.setSelectionRange&&el.setSelectionRange(n,n)}catch(e){}}}}).catch(()=>{})}
 const DKEY='gg-vac-borrador';
 function draftCtx(){return V.adding?'add':V.person?'edit:'+V.person:V.importing?'imp':V.tab==='fer'?'fer':''}
