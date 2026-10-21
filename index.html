@@ -385,6 +385,32 @@ a.btn{text-decoration:none;display:inline-block}
 .chk{display:flex;gap:10px;align-items:center;justify-content:center;margin:18px 0;font-weight:600;cursor:pointer}
 .chk input{width:18px;height:18px;accent-color:var(--brand)}
 @media print{body.reading>*{display:none!important}body.reading::after{content:"Este documento no se puede imprimir.";display:block;padding:40px;font:600 18px sans-serif}}
+/* Capacitaciones */
+.pnote.warn{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:18px 0 0}
+.csteps li{max-width:160px;flex:1}
+.vbox{max-width:900px;margin:0 auto;border-radius:12px;overflow:hidden;background:#0B1E25}
+.vbox video{display:block;width:100%;max-height:70vh;background:#000}
+.vframe{position:relative;padding-top:56.25%}.vframe iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.vlink{padding:60px 20px;text-align:center;color:#E4F0F2}.vlink p{margin:0 0 14px}
+.qlist{display:flex;flex-direction:column;gap:14px;max-width:820px;margin:0 auto}
+.qa{border:1px solid var(--line);border-radius:14px;padding:16px 18px 12px;margin:0}
+.qa legend{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:15.5px;font-weight:600;padding:0;margin-bottom:10px;width:100%}
+.qa legend small{flex-basis:100%;font-weight:400;color:var(--muted);font-size:12.5px;margin-left:34px}
+.qn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:12px;background:var(--brand-soft);color:var(--brand);font-size:12.5px;font-weight:700;flex:none}
+.qopt{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,background .15s}
+.qopt:hover{border-color:var(--line-strong)}.qopt.on{border-color:var(--brand);background:var(--brand-soft)}
+.qopt input{width:18px;height:18px;accent-color:var(--brand);flex:none;margin:0}
+.rfinal .big{font-size:44px;font-weight:700;margin:6px 0;color:var(--brand)}.rfinal.bad .big{color:var(--danger)}
+.spin{width:36px;height:36px;margin:0 auto 12px;border-radius:50%;border:4px solid var(--brand-soft);border-top-color:var(--brand);animation:spin360 .9s linear infinite}
+@keyframes spin360{to{transform:rotate(360deg)}}
+.qedit{display:flex;flex-direction:column;gap:12px}
+.qe{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:#fff}
+.qe-top{display:flex;gap:10px;align-items:center;margin-bottom:10px}.qe-top select{width:auto;min-width:200px}.qe-top .lnk{margin-left:auto}
+.qe textarea{font:inherit;width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;resize:vertical;margin-bottom:10px}
+.qopts{display:flex;flex-direction:column;gap:6px}
+.qo{display:flex;gap:10px;align-items:center}.qo>input[type=radio],.qo>input[type=checkbox]{width:18px;height:18px;accent-color:var(--brand);flex:none;margin:0}
+.qo input[data-qo]{flex:1}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>
 </head>
 <body>
@@ -480,17 +506,30 @@ async function gx(method,path,body){
 const NEW_COLS={permisos:[{name:'FechaReposicion2',dateTime:{format:'dateOnly'}},{name:'HoraReposicion2',text:{}}],reposiciones:[{name:'Bloque',number:{}}]};
 /* Listas que la página crea sola si no existen (las de políticas y capacitaciones se agregan en sus partes) */
 const NEW_LISTS={reposiciones:{name:'Reposiciones',columns:[{name:'PermisoId',number:{}},{name:'Bloque',number:{}}]},
-  biblioteca:{name:'Politicas internas',library:true,columns:[]},
+  biblioteca:{name:'Politicas internas',library:true,drive:'polDrive',columns:[]},
+  capvideos:{name:'Capacitaciones videos',library:true,drive:'capDrive',columns:[]},
+  capacitaciones:{name:'Capacitaciones',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'VideoId',text:{}},{name:'VideoNombre',text:{}},{name:'VideoUrl',text:{}},{name:'DuracionMin',number:{}},{name:'NotaMinima',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}},{name:'Rondas',text:{allowMultipleLines:true}}]},
+  claves:{name:'ClavesExamen',columns:[{name:'CapacitacionId',number:{}},{name:'Ronda',number:{}},{name:'Clave',text:{allowMultipleLines:true}}]},
+  avance:{name:'AvanceCapacitaciones',columns:[{name:'CapacitacionId',number:{}},{name:'Ronda',number:{}},{name:'Tipo',text:{}},{name:'Respuestas',text:{allowMultipleLines:true}},{name:'Nota',number:{}},{name:'Aprobado',boolean:{}},{name:'Calificado',boolean:{}}]},
   politicas:{name:'Politicas',columns:[{name:'Descripcion',text:{allowMultipleLines:true}},{name:'ArchivoId',text:{}},{name:'ArchivoNombre',text:{}},{name:'Paginas',number:{}},{name:'Partes',number:{}},{name:'SegundosPagina',number:{}},{name:'Estado',text:{}},{name:'FechaInicio',dateTime:{}}]},
   lecturas:{name:'LecturasPoliticas',columns:[{name:'PoliticaId',number:{}},{name:'Parte',number:{}},{name:'Segundos',number:{}}]}};
+/* Fija una lista en el menú de la izquierda del sitio (Quick Launch). Usa el permiso de SharePoint AllSites.Manage. */
+async function addQuickLaunch(title,url){
+  if(!url)return;const host=`https://${CONFIG.siteHost}`;
+  try{const tk=(await G.pca.acquireTokenSilent({scopes:[`${host}/AllSites.Manage`],account:G.account})).accessToken;
+    const r=await fetch(`${host}${CONFIG.sitePath}/_api/web/navigation/QuickLaunch`,{method:'POST',headers:{Authorization:'Bearer '+tk,Accept:'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},body:JSON.stringify({Title:title,Url:url})});
+    if(!r.ok)console.warn('No se pudo agregar al menú:',title,await r.text());else console.info('Agregada al menú:',title)}
+  catch(e){console.warn('Menú del sitio: falta el permiso AllSites.Manage de SharePoint',e)}
+}
 async function ensureList(tk,key){
   const d=NEW_LISTS[key];if(G.listIds[key]||!d)return;
   const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${G.siteId}/lists`,{method:'POST',headers:{Authorization:'Bearer '+tk,'Content-Type':'application/json'},
     body:JSON.stringify({displayName:d.name,columns:d.columns.map(c=>({...c,displayName:c.name})),list:{template:d.library?'documentLibrary':'genericList'}})});
   if(!r.ok){console.warn('No se pudo crear la lista',d.name,await r.text());return}
   const j=await r.json();G.listIds[key]=j.id;console.info('Lista creada:',d.name);
+  await addQuickLaunch(d.name,j.webUrl);
   if(key==='reposiciones')G.repCols=new Set(d.columns.map(c=>c.name));
-  if(d.library)G.polDrive=(await gx('GET',`/sites/${G.siteId}/lists/${j.id}/drive?$select=id`)).id;
+  if(d.library)G[d.drive]=(await gx('GET',`/sites/${G.siteId}/lists/${j.id}/drive?$select=id`)).id;
 }
 async function ensureCols(){
   const u=me();if(!u||u.role!=='rh')return;
@@ -541,7 +580,7 @@ async function connect(){
   }
   /* Lista opcional donde la jefatura confirma reposiciones de permisos */
   for(const [key,d] of Object.entries(NEW_LISTS)){const r=ls.find(l=>lc(l.displayName)===lc(d.name));if(r)G.listIds[key]=r.id}
-  if(G.listIds.biblioteca){try{G.polDrive=(await gx('GET',`/sites/${G.siteId}/lists/${G.listIds.biblioteca}/drive?$select=id`)).id}catch(e){console.warn('Biblioteca de políticas',e)}}
+  for(const [key,d] of Object.entries(NEW_LISTS))if(d.library&&G.listIds[key]){try{G[d.drive]=(await gx('GET',`/sites/${G.siteId}/lists/${G.listIds[key]}/drive?$select=id`)).id}catch(e){console.warn('Biblioteca',d.name,e)}}
   /* Columnas opcionales de Personal (Empresa, NumeroEmpleado, UnidadOperativa): solo se guardan si existen en SharePoint */
   try{G.pcols=new Set((await gx('GET',`/sites/${G.siteId}/lists/${G.listIds.personal}/columns?$select=name&$top=200`)).value.map(c=>c.name))}catch(e){G.pcols=new Set()}
   /* Columnas para reponer un permiso de 2 h en dos partes */
@@ -550,7 +589,7 @@ async function connect(){
 }
 async function loadAll(){
   const opt=k=>G.listIds[k]?allItems(k):Promise.resolve([]);
-  const [pe,so,pm,fe,rp,pl,lp]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),opt('reposiciones'),opt('politicas'),opt('lecturas')]);
+  const [pe,so,pm,fe,rp,pl,lp,cl,ck,ca]=await Promise.all([...['personal','solicitudes','permisos','feriados'].map(allItems),opt('reposiciones'),opt('politicas'),opt('lecturas'),opt('capacitaciones'),opt('claves').catch(()=>[]),opt('avance')]);
   const people=pe.map(i=>{const f=i.fields;return{
     spId:i.id,id:lc(f.Correo),email:lc(f.Correo),name:f.Title||'(sin nombre)',dept:f.Departamento||'',role:ROLE_IN[f.Perfil]||'colab',
     boss:lc(f.JefaturaCorreo)||null,start:rd(f.FechaIngreso)||TK,prior:+f.DiasPrevios||0,
@@ -570,7 +609,7 @@ async function loadAll(){
   perms.forEach(x=>{const sp=x.repaid;x.reps=repsOf(x);
     x.reps.forEach(b=>{b.conf=confs.find(c=>c.permId===String(x.spId)&&c.block===b.n&&confOK(c,x))||null;b.done=sp||!!b.conf});
     x.repaid=x.reps.length?x.reps.every(b=>b.done):sp;x.conf=x.reps.map(b=>b.conf).filter(Boolean).at(-1)||null});
-  polsLoad(pl,lp);
+  polsLoad(pl,lp);capsLoad(cl,ck,ca);
   G.loadedAt=Date.now();
   setTimeout(calSync,500);
 }
@@ -740,9 +779,10 @@ function render(){
   const SECS=[...(u.role==='rh'?[['dash','Dashboard']]:[]),['vac','Vacaciones y permisos'],['pol','Gestión de políticas internas']];
   if(!SECS.some(x=>x[0]===V.sec))V.sec=SECS[0][0];
   if(!(V.sec==='pol'&&V.read))readerStop();
-  const pc=polPendCount(),SW=`<div class="secsw" role="group" aria-label="Sección">${SECS.map(([id,l])=>`<button type="button" data-sec="${id}" aria-pressed="${V.sec===id}">${l}${id==='pol'&&pc?`<b>${pc}</b>`:''}</button>`).join('')}</div>`;
+  if(!(V.sec==='pol'&&V.cap))capStop();
+  const pc=polPendCount()+capPendCount(),SW=`<div class="secsw" role="group" aria-label="Sección">${SECS.map(([id,l])=>`<button type="button" data-sec="${id}" aria-pressed="${V.sec===id}">${l}${id==='pol'&&pc?`<b>${pc}</b>`:''}</button>`).join('')}</div>`;
   if(V.sec==='dash'){app.innerHTML=`<h1>Hola, ${esc(firstName(u.name))}</h1><p class="welcome">${cap(fD(TK))}. Así está el personal hoy.</p>${SW}${vPanel()}`;return}
-  if(V.sec==='pol'){app.innerHTML=V.read?vPol():`<h1>Hola, ${esc(firstName(u.name))}</h1>${SW}${vPol()}`;if(V.read)readerMount();return}
+  if(V.sec==='pol'){app.innerHTML=V.read||V.cap?vPol():`<h1>Hola, ${esc(firstName(u.name))}</h1>${SW}${vPol()}`;if(V.read)readerMount();if(V.cap)capMount();return}
   app.innerHTML=`<h1>Hola, ${esc(firstName(u.name))}</h1>${SW}
   <div class="stats">
     <div class="stat main"><span>Días disponibles</span><strong ${b.avail<0?'class="neg"':''}>${num(b.avail)}</strong><small>${b.avail<0?`Usaste ${dias(-b.avail)} por adelantado. Quedas al día el ${fD(coverDate(u,-b.avail))}`:`Ganas 1 día más el ${fD(nextAccrual(u.start))}`}</small></div>
@@ -783,10 +823,11 @@ const polPendCount=()=>{const u=me();return u?(S.pols||[]).filter(p=>p.status===
 function vPol(){
   const u=me(),isRH=u.role==='rh';
   if(V.read)return vReader();
+  if(V.cap)return vCapPlay();
   if(!G.listIds.politicas)return `<div class="soon"><h2>Gestión de políticas internas</h2><p>${isRH?'Las listas de políticas todavía no existen. Se crean solas cuando RH abre el sistema; recarga la página en un momento.':'Aquí vas a encontrar las políticas internas para leer y las capacitaciones con su examen. Muy pronto.'}</p></div>`;
-  const T=[['mine','Mis políticas',polPendCount()],...(isRH?[['admin','Administrar políticas']]:[])];
+  const T=[['mine','Mis políticas',polPendCount()],['caps','Mis capacitaciones',capPendCount()],...(isRH?[['admin','Administrar políticas'],...(G.listIds.capacitaciones?[['capadmin','Administrar capacitaciones']]:[])]:[])];
   if(!T.some(t=>t[0]===V.polTab))V.polTab='mine';
-  return `<nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.polTab===id}" data-ptab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>`+(V.polTab==='admin'?vPolAdmin():vPolMine());
+  return `<nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.polTab===id}" data-ptab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>`+({admin:vPolAdmin,caps:vCapMine,capadmin:vCapAdmin}[V.polTab]||vPolMine)();
 }
 function vPolMine(){
   const u=me(),act=(S.pols||[]).filter(p=>p.status==='Activa').map(p=>({p,st:polState(p,u.id)}));
@@ -905,6 +946,196 @@ async function polExcel(p){
   const ws=XLSX.utils.json_to_sheet(rows,{dateNF:'dd/mm/yyyy'});ws['!cols']=[{wch:30},{wch:32},{wch:22},{wch:12},{wch:26},{wch:18}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Lectura');XLSX.writeFile(wb,`Lectura - ${p.title.replace(/[\\/:*?"<>|]/g,'').slice(0,80)}.xlsx`);
 }
+
+/* ======================= Capacitaciones (video + examen) ======================= */
+const CAPMIN=70;
+const QT=[['tf','Verdadero / Falso'],['one','Opción única'],['multi','Selección múltiple']];
+function capsLoad(cl,ck,ca){
+  S.caps=cl.map(i=>{const f=i.fields;let r=[];try{r=JSON.parse(f.Rondas||'[]')}catch(e){}
+    return{id:'C'+i.id,spId:i.id,title:f.Title||'(sin nombre)',desc:f.Descripcion||'',videoId:f.VideoId||'',videoName:f.VideoNombre||'',link:f.VideoUrl||'',dur:+f.DuracionMin||0,
+      min:f.NotaMinima==null?CAPMIN:+f.NotaMinima,status:f.Estado||'Borrador',start:f.FechaInicio||'',rounds:Array.isArray(r)?r:[],created:Date.parse(i.createdDateTime)||0}}).sort((a,b)=>b.created-a.created);
+  S.keys=ck.map(i=>{let k=[];try{k=JSON.parse(i.fields.Clave||'[]')}catch(e){}return{spId:i.id,cap:String(i.fields.CapacitacionId??''),round:+i.fields.Ronda||1,key:k}});
+  S.adv=ca.map(i=>{const f=i.fields;return{spId:i.id,cap:String(f.CapacitacionId??''),round:+f.Ronda||1,type:f.Tipo||'',score:f.Nota==null?null:+f.Nota,pass:f.Aprobado===true,graded:f.Calificado===true,
+    by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:i.createdDateTime||''}});
+}
+const capMine=(c,pid)=>{const x=who(pid);return (S.adv||[]).filter(a=>a.cap===String(c.spId)&&(a.by===pid||(!a.by&&x&&a.byName===x.name)))};
+const capRoundsFor=(c,pid)=>c.rounds.filter(r=>r.para==='all'||(Array.isArray(r.para)&&r.para.includes(pid)));
+function capState(c,pid){
+  const rs=capRoundsFor(c,pid);if(!rs.length)return{st:'none'};
+  const cur=rs.at(-1),mine=capMine(c,pid),ex=mine.find(a=>a.type==='examen'&&a.round===cur.n);
+  const passed=mine.filter(a=>a.type==='examen'&&a.graded&&a.pass).sort((a,b)=>b.score-a.score)[0];
+  if(passed)return{st:'pass',score:passed.score,round:passed.round,at:passed.at,cur};
+  if(ex)return ex.graded?{st:'fail',score:ex.score,round:cur.n,at:ex.at,cur}:{st:'grading',round:cur.n,at:ex.at,cur};
+  if(mine.some(a=>a.type==='video'&&a.round===cur.n))return{st:'exam',round:cur.n,cur};
+  return{st:'video',round:cur.n,cur};
+}
+const capPendCount=()=>{const u=me();return u?(S.caps||[]).filter(c=>c.status==='Activa'&&['video','exam'].includes(capState(c,u.id).st)).length:0};
+const capPill=c=>c.status==='Activa'?'<span class="pill ok">Activa</span>':c.status==='Cerrada'?'<span class="pill cancel">Cerrada</span>':'<span class="pill jefatura">Borrador</span>';
+const pct=v=>`${Math.round(v)} %`;
+function capStLabel(s){return s.st==='pass'?`<span class="pill ok">Aprobó · ${pct(s.score)}</span>`:s.st==='fail'?`<span class="pill no">Reprobó · ${pct(s.score)}</span>`:s.st==='grading'?'<span class="pill jefatura">Calificando</span>'
+  :s.st==='exam'?'<span class="pill jefatura">Vio el video, falta el examen</span>':s.round>1?`<span class="pill rh">Ronda ${s.round}: pendiente</span>`:'<span class="pill cancel">No ha empezado</span>'}
+/* claves: [{q:'id',ok:'0,2'}]  respuestas: {id:'0,2'} */
+const okStr=a=>[...a].map(Number).sort((x,y)=>x-y).join(',');
+const gradeLocal=(key,ans)=>{const ok=key.filter(k=>(ans[k.q]||'')===k.ok).length;return key.length?ok/key.length*100:0};
+
+/* ---------- Colaborador ---------- */
+function vCapMine(){
+  const u=me(),list=(S.caps||[]).filter(c=>c.status!=='Borrador').map(c=>({c,s:capState(c,u.id)})).filter(x=>x.s.st!=='none');
+  const pend=list.filter(x=>x.c.status==='Activa'&&['video','exam','grading'].includes(x.s.st)),res=list.filter(x=>['pass','fail'].includes(x.s.st));
+  return `<h2 class="ph2">Pendientes</h2>${pend.length?`<div class="pcards">${pend.map(({c,s})=>`<div class="pcard"><div class="pc-main"><h3>${esc(c.title)}${s.round>1?` <span class="pill rh">Ronda ${s.round}</span>`:''}</h3>${c.desc?`<p>${esc(c.desc)}</p>`:''}
+      <small>${s.st==='video'?(s.round>1?'Tienes preguntas nuevas. Primero vuelve a ver el video completo.':'Primero ves el video completo y después haces el examen.'):s.st==='exam'?'Ya viste el video. Falta el examen.':'Estamos calificando tu examen. En un momento ves tu nota.'}</small></div>
+      ${s.st==='grading'?'<span class="pill jefatura">Calificando…</span>':`<button class="btn primary" data-act="capGo" data-id="${c.id}">${s.st==='video'?'Ver video':'Hacer examen'}</button>`}</div>`).join('')}</div>`:'<p class="empty">No tienes capacitaciones pendientes.</p>'}
+  <h2 class="ph2" style="margin-top:30px">Resultados</h2><ul class="rows">${res.map(({c,s})=>`<li><div class="main"><strong>${esc(c.title)}</strong><p>${s.st==='pass'?`Aprobaste con ${pct(s.score)} el ${dtF(s.at)}`:`Obtuviste ${pct(s.score)} y la nota mínima es ${pct(c.min)}. Pronto te llegarán nuevas preguntas.`}</p></div>${s.st==='pass'?'<span class="pill ok">Aprobada</span>':'<span class="pill no">Reprobada</span>'}</li>`).join('')||'<li><p class="empty">Todavía no tienes resultados.</p></li>'}</ul>`;
+}
+function vCapPlay(){
+  const k=V.cap,c=(S.caps||[]).find(x=>x.id===k.id),u=me();if(!c){V.cap=null;return vPol()}
+  let s=k.test?{st:k.step,round:k.round,cur:c.rounds.find(r=>r.n===k.round)}:capState(c,u.id);
+  if(!k.test&&s.st==='none'){V.cap=null;return vPol()}
+  const step=k.test?k.step:s.st==='video'?'video':s.st==='exam'?'exam':'result',round=s.cur||c.rounds[0];
+  const steps=`<ol class="rsteps csteps">${[['video','1. Video'],['exam','2. Examen'],['result','3. Resultado']].map(([id,l],i,a)=>`<li class="${step===id?'cur':a.findIndex(x=>x[0]===step)>i?'done':''}"><span>${l}</span></li>`).join('')}</ol>`;
+  const head=`<div class="rhead"><button class="lnk" data-act="capExit">‹ Salir${k.test?'':' (tu avance queda guardado)'}</button>${k.test?'<span class="pill jefatura">Prueba de RH: no se registra</span>':''}</div><h2 class="ph2" style="margin:8px 0 12px">${esc(c.title)}${round&&round.n>1?` <span class="pill rh">Ronda ${round.n}</span>`:''}</h2>${steps}`;
+  if(step==='video')return head+`<div class="vbox">${c.videoId?`<video id="cv" controls controlsList="nodownload noplaybackrate" disablepictureinpicture playsinline preload="metadata"></video>`
+      :c.link&&/youtu\.?be/.test(c.link)?`<div class="vframe"><iframe src="https://www.youtube-nocookie.com/embed/${esc((c.link.match(/(?:v=|be\/|embed\/)([\w-]{11})/)||[])[1]||'')}?rel=0" title="Video de la capacitación" allow="encrypted-media" allowfullscreen></iframe></div>`
+      :c.link?`<div class="vlink"><p>El video está en otro sitio.</p><a class="btn primary" href="${esc(c.link)}" target="_blank" rel="noopener">Abrir el video</a></div>`:'<div class="vlink"><p>Video de ejemplo</p></div>'}</div>
+    <div class="rbar"><div class="rprog"><i id="cBar"></i></div><div class="rrow"><div class="rinfo"><span id="cInfo">${c.videoId?'Mira el video completo. No se puede adelantar.':'Mira el video completo.'}</span></div>
+      <div class="racts">${k.test?'<button class="btn sm" data-act="capSkip">Saltar video (prueba)</button>':''}<button class="btn primary" id="cOk" data-act="capVideoDone" disabled>Ir al examen</button></div></div></div>`;
+  if(step==='exam'){const qs=round.qs||[];return head+`<p class="small muted" style="margin:0 0 14px">${qs.length} ${qs.length===1?'pregunta':'preguntas'} · necesitas ${pct(c.min)} para aprobar · tienes un solo intento en esta ronda</p>
+    <div class="qlist">${qs.map((q,i)=>{const a=k.ans[q.id]||new Set(),opts=q.type==='tf'?['Verdadero','Falso']:q.opts;
+      return `<fieldset class="qa"><legend><span class="qn">${i+1}</span>${esc(q.t)}${q.type==='multi'?'<small>Marca todas las que apliquen.</small>':''}</legend>${opts.map((o,j)=>`<label class="qopt ${a.has(j)?'on':''}"><input type="${q.type==='multi'?'checkbox':'radio'}" name="a${q.id}" data-ans="${q.id}" data-j="${j}" data-multi="${q.type==='multi'?1:0}" ${a.has(j)?'checked':''}><span>${esc(o)}</span></label>`).join('')}</fieldset>`}).join('')}</div>
+    <div class="rbar"><div class="rrow"><div class="rinfo"><span id="qCount">${qs.filter(q=>(k.ans[q.id]||new Set()).size).length} de ${qs.length} respondidas</span></div><div class="racts"><button class="btn primary" data-act="capSubmit">Enviar respuestas</button></div></div></div>`}
+  /* resultado */
+  if(k.test)return head+`<div class="box rfinal"><h3>${k.score>=c.min?'Aprobaría':'Reprobaría'} con ${pct(k.score)}</h3><p>Así vería el resultado un colaborador. Nota mínima: ${pct(c.min)}. Esta prueba no se registró.</p><button class="btn primary" data-act="capExit">Terminar prueba</button></div>`;
+  if(s.st==='grading')return head+`<div class="box rfinal"><div class="spin" aria-hidden="true"></div><h3>Calificando tu examen…</h3><p>Tarda uno o dos minutos. Puedes quedarte aquí o volver luego.</p></div>`;
+  if(s.st==='pass')return head+`<div class="box rfinal ok"><h3>¡Aprobaste!</h3><p class="big">${pct(s.score)}</p><p>Nota mínima: ${pct(c.min)}. Quedó registrado el ${dtF(s.at)}.</p><button class="btn primary" data-act="capExit">Listo</button></div>`;
+  return head+`<div class="box rfinal bad"><h3>Esta vez no alcanzó</h3><p class="big">${pct(s.score)}</p><p>La nota mínima es ${pct(c.min)}. Pronto te llegarán nuevas preguntas por Teams y vas a volver a ver el video antes de hacerlas.</p><button class="btn" data-act="capExit">Entendido</button></div>`;
+}
+/* Video: sin adelantar, se pausa al cambiar de pestaña, guarda el avance en este navegador */
+function capStop(){clearInterval(G.ctimer);clearInterval(G.gpoll);G.gpoll=null}
+async function capMount(){
+  capStop();const k=V.cap;if(!k)return;const c=S.caps.find(x=>x.id===k.id);
+  const bar=document.getElementById('cBar'),info=document.getElementById('cInfo'),ok=document.getElementById('cOk'),v=document.getElementById('cv');
+  if(!document.getElementById('cOk')&&!document.querySelector('.spin'))return;
+  if(document.querySelector('.spin')){let n=0;G.gpoll=setInterval(async()=>{if(!V.cap||++n>16){clearInterval(G.gpoll);return}try{await loadAll();if(capState(c,me().id).st!=='grading'){clearInterval(G.gpoll);render()}}catch(e){}},12000);return}
+  const done=()=>{ok.disabled=false;if(bar)bar.style.width='100%';info.innerHTML='<span class="ok">Terminaste el video</span>'};
+  if(v){const key=`gg-cap-${c.spId}-${k.round||1}-${V.user}`;let max=0;try{max=+localStorage.getItem(key)||0}catch(e){}
+    try{const it=await gx('GET',`/drives/${G.capDrive}/items/${c.videoId}`);v.src=it['@microsoft.graph.downloadUrl']}catch(e){info.textContent='No se pudo cargar el video: '+(e.message||e);return}
+    v.addEventListener('loadedmetadata',()=>{if(max>1&&max<v.duration-1)v.currentTime=max});
+    v.addEventListener('timeupdate',()=>{if(!v.seeking&&v.currentTime>max&&v.currentTime-max<2)max=v.currentTime;if(v.duration){bar.style.width=Math.min(100,max/v.duration*100)+'%'}try{localStorage.setItem(key,String(max))}catch(e){}});
+    v.addEventListener('seeking',()=>{if(v.currentTime>max+1)v.currentTime=max});
+    v.addEventListener('ratechange',()=>{if(v.playbackRate>1)v.playbackRate=1});
+    v.addEventListener('ended',()=>{if(max>=v.duration-2)done()});
+    if(k.vdone)done();return}
+  /* link externo: tiempo mínimo según la duración que puso RH */
+  const need=Math.max(30,(c.dur||1)*60);if(k.left==null)k.left=need;
+  const upd=()=>{const m=Math.floor(k.left/60),s=String(k.left%60).padStart(2,'0');if(k.left<=0)return done();bar.style.width=(100-k.left/need*100)+'%';info.innerHTML=`Mira el video completo · disponible en <strong>${m}:${s}</strong>`};
+  upd();G.ctimer=setInterval(()=>{if(V.cap!==k){clearInterval(G.ctimer);return}if(document.visibilityState==='visible'&&k.left>0)k.left--;upd()},1000);
+}
+document.addEventListener('visibilitychange',()=>{const v=document.getElementById('cv');if(v&&document.hidden&&!v.paused)v.pause()});
+
+/* ---------- RH ---------- */
+function vCapAdmin(){
+  if(V.capEd)return vCapEditor();
+  if(V.capDet){const c=(S.caps||[]).find(x=>x.id===V.capDet);if(c)return vCapDetail(c);V.capDet=null}
+  const rows=(S.caps||[]).map(c=>{const ss=S.people.map(p=>capState(c,p.id)).filter(s=>s.st!=='none');return{c,n:ss.length,d:ss.filter(s=>s.st==='pass').length}});
+  return `<div class="phead"><div><h2 class="ph2" style="margin:0">Capacitaciones</h2><p class="small muted" style="margin:2px 0 0">Sube el video, arma el examen, pruébalo y cuando esté listo tócale Empezar.</p></div><button class="btn primary" data-act="capNew">Nueva capacitación</button></div>
+  ${rows.length?`<div class="tbl"><table class="ptab"><thead><tr><th>Capacitación</th><th>Estado</th><th>Inicio</th><th style="width:32%">Aprobaron</th><th></th></tr></thead><tbody>${rows.map(({c,n,d})=>`<tr class="click" data-act="capOpen" data-id="${c.id}"><td><strong>${esc(c.title)}</strong><small>${(c.rounds[0]?.qs||[]).length} preguntas · mínimo ${pct(c.min)}${c.rounds.length>1?` · ${c.rounds.length} rondas`:''}</small></td><td>${capPill(c)}</td><td>${c.start?dtF(c.start):'—'}</td>
+    <td>${c.status==='Borrador'?'<span class="small muted">Sin empezar</span>':`<div class="prog"><div class="pbar"><i style="width:${n?d/n*100:0}%"></i></div><span>${d} de ${n}</span></div>`}</td><td class="chev" aria-hidden="true">›</td></tr>`).join('')}</tbody></table></div>`
+  :'<div class="soon"><h2>Todavía no hay capacitaciones</h2><p>Crea la primera con el botón “Nueva capacitación”.</p></div>'}`;
+}
+const newQ=()=>({id:'q'+Math.random().toString(36).slice(2,8),type:'one',t:'',opts:['',''],ok:[]});
+function vCapEditor(){
+  const e=V.capEd,isRound=!!e.roundOf,c=isRound&&S.caps.find(x=>x.id===e.roundOf);
+  const head=isRound?`<button class="lnk" data-act="capEdCancel">‹ Volver</button><div class="box" style="margin-top:12px"><h2 style="margin-top:0">Ronda ${e.n} de “${esc(c.title)}”</h2>
+      <p class="small muted" style="margin:0">Para ${e.para.length} ${e.para.length===1?'persona':'personas'} que reprobaron: ${esc(e.para.map(id=>who(id)?.name||id).join(', '))}. Al enviarla les llega un Teams y tienen que volver a ver el video antes de responder.</p></div>`
+    :`<button class="lnk" data-act="capEdCancel">‹ Todas las capacitaciones</button><div class="box" style="margin-top:12px"><h2 style="margin-top:0">${e.spId?'Editar capacitación':'Nueva capacitación'}</h2>
+    <label class="f"><span>Nombre</span><input data-cf="title" maxlength="200" value="${esc(e.title)}" placeholder="Ej.: Servicio al cliente"></label>
+    <label class="f"><span>Descripción corta (opcional)</span><textarea data-cf="desc" rows="2" maxlength="400">${esc(e.desc)}</textarea></label>
+    <div class="f"><span>Video</span><div class="seg" role="radiogroup">${[['file','Subir archivo'],['link','Usar un link']].map(([v,l])=>`<button type="button" role="radio" aria-checked="${e.mode===v}" data-cmode="${v}">${l}</button>`).join('')}</div></div>
+    ${e.mode==='file'?`<label class="f"><span>${e.videoName?`Video actual: ${esc(e.videoName)}. Elige otro solo si lo quieres cambiar.`:'Archivo de video (MP4)'}</span><input id="capFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"></label>
+      <p class="note" style="margin:-4px 0 14px">Con archivo, la página no deja adelantar el video y sabe cuándo lo terminaron de ver.</p>`
+      :`<div class="two"><label class="f"><span>Link del video</span><input data-cf="link" value="${esc(e.link)}" placeholder="https://…"></label><label class="f"><span>Duración (minutos)</span><input data-cf="dur" type="number" min="1" max="240" value="${esc(e.dur)}"></label></div>
+      <p class="note" style="margin:-4px 0 14px">Con link no se puede saber si lo vieron completo. El examen se habilita cuando pasa el tiempo de la duración.</p>`}
+    <label class="f" style="max-width:220px"><span>Nota mínima para aprobar (%)</span><input data-cf="min" type="number" min="1" max="100" value="${esc(e.min)}"></label></div>`;
+  return head+`<h2 class="ph2" style="margin:24px 0 12px">Preguntas${isRound?` nuevas (ronda ${e.n})`:''}</h2><div class="qedit">${e.qs.map((q,i)=>`<div class="qe"><div class="qe-top"><span class="qn">${i+1}</span>
+      <select data-qf="type" data-qi="${i}" aria-label="Tipo de pregunta">${QT.map(([v,l])=>`<option value="${v}" ${q.type===v?'selected':''}>${l}</option>`).join('')}</select>
+      <button class="lnk red" data-act="qDel" data-qi="${i}">Quitar</button></div>
+      <textarea data-qf="t" data-qi="${i}" rows="2" placeholder="Escribe la pregunta" aria-label="Pregunta ${i+1}">${esc(q.t)}</textarea>
+      <div class="qopts">${(q.type==='tf'?['Verdadero','Falso']:q.opts).map((o,j)=>`<div class="qo"><input type="${q.type==='multi'?'checkbox':'radio'}" name="qk${i}" data-qk="${j}" data-qi="${i}" ${q.ok.includes(j)?'checked':''} aria-label="Correcta">
+        ${q.type==='tf'?`<span>${o}</span>`:`<input data-qo="${j}" data-qi="${i}" value="${esc(o)}" placeholder="Opción ${j+1}" aria-label="Opción ${j+1}">${q.opts.length>2?`<button type="button" class="lnk" data-act="optDel" data-qi="${i}" data-oj="${j}" aria-label="Quitar opción">✕</button>`:''}`}</div>`).join('')}
+      ${q.type!=='tf'&&q.opts.length<8?`<button type="button" class="lnk" data-act="optAdd" data-qi="${i}">+ Agregar opción</button>`:''}</div>
+      <p class="small muted" style="margin:8px 0 0">${q.type==='multi'?'Marca todas las respuestas correctas.':'Marca la respuesta correcta.'}</p></div>`).join('')}</div>
+    <button class="btn" data-act="qAdd" style="margin-top:12px">+ Agregar pregunta</button>
+    <div style="display:flex;gap:8px;margin-top:24px">${isRound?'<button class="btn primary" data-act="capRoundSend">Enviar ronda</button>':'<button class="btn primary" data-act="capEdSave">Guardar borrador</button>'}<button class="btn" data-act="capEdCancel">Cancelar</button></div>`;
+}
+function capValidate(e,isRound){
+  if(!isRound){if(!(e.title||'').trim())return'Ponle un nombre a la capacitación.';
+    if(e.mode==='file'&&!G.capFile&&!e.videoId)return'Elige el archivo del video.';
+    if(e.mode==='link'&&!/^https?:\/\//i.test(e.link||''))return'Pega el link del video (empieza con https://).';
+    if(e.mode==='link'&&!(+e.dur>0))return'Pon la duración del video en minutos.';
+    if(!(+e.min>=1&&+e.min<=100))return'La nota mínima debe estar entre 1 y 100.'}
+  if(!e.qs.length)return'Agrega al menos una pregunta.';
+  for(const [i,q] of e.qs.entries()){const n=i+1;if(!q.t.trim())return`Escribe el texto de la pregunta ${n}.`;
+    if(q.type!=='tf'&&q.opts.some(o=>!o.trim()))return`Llena todas las opciones de la pregunta ${n}, o quita las que sobran.`;
+    if(!q.ok.length)return`Marca la respuesta correcta de la pregunta ${n}.`;
+    if(q.type!=='multi'&&q.ok.length!==1)return`La pregunta ${n} debe tener una sola respuesta correcta.`}
+  return'';
+}
+const qPublic=qs=>qs.map(q=>({id:q.id,type:q.type,t:q.t.trim(),opts:q.type==='tf'?['Verdadero','Falso']:q.opts.map(o=>o.trim())}));
+const qKey=qs=>qs.map(q=>({q:q.id,ok:okStr(q.ok)}));
+function capEdSave(){
+  const e=V.capEd,err=capValidate(e,false);if(err){toast(err);return}
+  if(!G.listIds.capacitaciones||!G.listIds.claves||(e.mode==='file'&&!G.capDrive)){toast('Faltan las listas de capacitaciones. Recarga la página.');return}
+  act(async()=>{let vid=e.videoId,vname=e.videoName;
+    if(e.mode==='file'&&G.capFile){const f=G.capFile,it=await uploadFile(G.capDrive,`${Date.now()}-${f.name.replace(/[^\w.\- ]+/g,'_')}`,f);vid=it.id;vname=f.name}
+    const rounds=[{n:1,para:'all',fecha:null,qs:qPublic(e.qs)}];
+    const fields={Title:e.title.trim(),Descripcion:(e.desc||'').trim(),VideoId:e.mode==='file'?vid:'',VideoNombre:e.mode==='file'?vname:'',VideoUrl:e.mode==='link'?e.link.trim():'',DuracionMin:e.mode==='link'?+e.dur:0,NotaMinima:+e.min,Rondas:JSON.stringify(rounds)};
+    let id=e.spId;if(id)await setItem('capacitaciones',id,fields);else id=(await addItem('capacitaciones',{...fields,Estado:'Borrador'})).id;
+    const kf={Title:`C${id}-R1`,CapacitacionId:+id,Ronda:1,Clave:JSON.stringify(qKey(e.qs))},old=S.keys.find(k=>k.cap===String(id)&&k.round===1);
+    if(old)await setItem('claves',old.spId,kf);else await addItem('claves',kf);
+    G.capFile=null;V.capEd=null;V.capDet='C'+id},'Capacitación guardada como borrador.');
+}
+function capRoundSend(){
+  const e=V.capEd,err=capValidate(e,true);if(err){toast(err);return}const c=S.caps.find(x=>x.id===e.roundOf);
+  act(async()=>{const rounds=[...c.rounds,{n:e.n,para:e.para,fecha:new Date().toISOString(),qs:qPublic(e.qs)}];
+    await addItem('claves',{Title:`C${c.spId}-R${e.n}`,CapacitacionId:+c.spId,Ronda:e.n,Clave:JSON.stringify(qKey(e.qs))});
+    await setItem('capacitaciones',c.spId,{Rondas:JSON.stringify(rounds)});V.capEd=null},`Ronda ${e.n} enviada.`);
+}
+function vCapDetail(c){
+  const ppl=[...S.people].sort((a,b)=>a.name.localeCompare(b.name)),st=ppl.map(x=>({x,s:capState(c,x.id)})).filter(o=>o.s.st!=='none');
+  const g={pass:st.filter(o=>o.s.st==='pass'),fail:st.filter(o=>o.s.st==='fail'),prog:st.filter(o=>['exam','grading'].includes(o.s.st)||(o.s.st==='video'&&o.s.round>1)),none:st.filter(o=>o.s.st==='video'&&o.s.round===1)};
+  const F=V.capF||'all',list=F==='all'?st:g[F],p=st.length?Math.round(g.pass.length/st.length*100):0;
+  const days=c.start?Math.max(0,Math.round((P(TK)-P(rd(c.start)))/864e5)):0,nq=(c.rounds[0]?.qs||[]).length;
+  return `<button class="lnk" data-act="capBack">‹ Todas las capacitaciones</button>
+  <div class="phead" style="margin-top:12px"><div><h2 class="ph2" style="margin:0">${esc(c.title)} ${capPill(c)}</h2>
+    <p class="small muted" style="margin:4px 0 0">${c.desc?esc(c.desc)+' · ':''}${c.videoId?'Video subido':'Video por link'} · ${nq} preguntas · mínimo ${pct(c.min)}${c.start?` · activa desde el ${dtF(c.start)} (${days} ${days===1?'día':'días'})`:''}</p></div>
+    <div class="pacts"><button class="btn" data-act="capTest" data-id="${c.id}">Probar como colaborador</button>${c.status==='Borrador'?`<button class="btn" data-act="capEdit" data-id="${c.id}">Editar</button><button class="btn primary" data-act="capStart" data-id="${c.id}">Empezar</button>`:c.status==='Activa'?`<button class="btn" data-act="capClose" data-id="${c.id}">Cerrar</button>`:''}${c.status!=='Borrador'?`<button class="btn" data-act="capExcel" data-id="${c.id}">Descargar Excel</button>`:''}<button class="btn" style="color:var(--danger)" data-act="capDel" data-id="${c.id}">Eliminar</button></div></div>
+  ${c.status==='Borrador'?`<div class="pnote">Está en <strong>borrador</strong>: nadie más la ve. Usa <strong>Probar como colaborador</strong> para ver el video y hacer el examen; esa prueba no queda registrada. Cuando esté lista, toca <strong>Empezar</strong>.</div>`:`
+  ${g.fail.length&&c.status==='Activa'?`<div class="pnote warn"><div><strong>${g.fail.length} ${g.fail.length===1?'persona reprobó':'personas reprobaron'}</strong> y ${g.fail.length===1?'espera':'esperan'} preguntas nuevas: ${esc(g.fail.map(o=>o.x.name).join(', '))}.</div><button class="btn primary" data-act="capRound" data-id="${c.id}">Crear ronda ${c.rounds.length+1}</button></div>`:''}
+  <div class="psum"><div class="pbig"><strong>${p}%</strong><span>${g.pass.length} de ${st.length} aprobaron</span></div>
+    <div class="pchips">${[['all','Todos',st.length],['pass','Aprobaron',g.pass.length],['fail','Reprobaron',g.fail.length],['prog','En proceso',g.prog.length],['none','No han empezado',g.none.length]].map(([k,l,n])=>`<button type="button" data-capf="${k}" aria-pressed="${F===k}">${l}<b>${n}</b></button>`).join('')}</div></div>
+  <div class="pbar lg" style="margin:0 0 18px"><i style="width:${p}%"></i></div>
+  <div class="tbl"><table class="ptab"><thead><tr><th>Persona</th><th>Departamento</th><th>Ronda</th><th>Estado</th><th>Fecha</th></tr></thead><tbody>${list.map(({x,s})=>`<tr><td><strong>${esc(x.name)}</strong><small>${esc(x.company||'')}</small></td><td>${esc(x.dept||'—')}</td><td>${s.round||1}</td><td>${capStLabel(s)}</td><td>${s.at?dtF(s.at):'—'}</td></tr>`).join('')||'<tr><td colspan="5"><p class="empty">Nadie en este grupo.</p></td></tr>'}</tbody></table></div>
+  ${c.rounds.length>1?`<p class="small muted" style="margin-top:14px">Rondas: ${c.rounds.map(r=>`ronda ${r.n}${r.fecha?` (${dtF(r.fecha)}${Array.isArray(r.para)?`, ${r.para.length} personas`:''})`:''}`).join(' · ')}</p>`:''}`}`;
+}
+async function capExcel(c){
+  await loadXLSX();const L={pass:'Aprobó',fail:'Reprobó',grading:'Calificando',exam:'Vio el video, falta examen',video:'Pendiente'};
+  const rows=[...S.people].sort((a,b)=>a.name.localeCompare(b.name)).map(x=>({x,s:capState(c,x.id)})).filter(o=>o.s.st!=='none').map(({x,s})=>({'Nombre':x.name,'Correo':x.email,'Departamento':x.dept||'','Empresa':x.company||'','Ronda':s.round||1,'Estado':L[s.st]||'','Nota':s.score==null?'':Math.round(s.score),'Fecha':s.at?xd(rd(s.at)):''}));
+  const ws=XLSX.utils.json_to_sheet(rows,{dateNF:'dd/mm/yyyy'});ws['!cols']=[{wch:30},{wch:32},{wch:22},{wch:12},{wch:8},{wch:26},{wch:8},{wch:14}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Resultados');XLSX.writeFile(wb,`Capacitación - ${c.title.replace(/[\\/:*?"<>|]/g,'').slice(0,80)}.xlsx`);
+}
+/* Editor: guardar lo que se escribe sin volver a dibujar la pantalla */
+document.addEventListener('input',e=>{const t=e.target,ed=V.capEd;if(!ed)return;
+  if(t.dataset.cf){ed[t.dataset.cf]=t.value;return}
+  const i=+t.dataset.qi;if(t.dataset.qf==='t'){ed.qs[i].t=t.value;return}
+  if(t.dataset.qo!=null){ed.qs[i].opts[+t.dataset.qo]=t.value}});
+document.addEventListener('change',e=>{const t=e.target;
+  if(t.id==='capFile'){G.capFile=t.files[0]||null;return}
+  if(t.dataset?.ans){const k=V.cap;if(!k)return;const q=t.dataset.ans,j=+t.dataset.j,set=k.ans[q]=t.dataset.multi==='1'?(k.ans[q]||new Set()):new Set();if(t.checked)set.add(j);else set.delete(j);
+    document.querySelectorAll(`[data-ans="${q}"]`).forEach(x=>x.closest('.qopt').classList.toggle('on',x.checked));
+    const c=S.caps.find(x=>x.id===k.id),r=c&&(k.test?c.rounds.find(x=>x.n===k.round):capState(c,me().id).cur),qs=r?.qs||[],el=document.getElementById('qCount');if(el)el.textContent=`${qs.filter(q=>(k.ans[q.id]||new Set()).size).length} de ${qs.length} respondidas`;return}
+  const ed=V.capEd;if(!ed)return;const i=+t.dataset.qi;
+  if(t.dataset.qf==='type'){const q=ed.qs[i];q.type=t.value;q.ok=[];if(q.type!=='tf'&&q.opts.length<2)q.opts=['',''];render();return}
+  if(t.dataset.qk!=null){const q=ed.qs[i],j=+t.dataset.qk;if(q.type==='multi'){q.ok=t.checked?[...new Set([...q.ok,j])]:q.ok.filter(x=>x!==j)}else q.ok=[j]}});
 
 /* ---------- Panel de RH: gráficos hechos a mano en SVG ---------- */
 const DC={brand:'#0D6174',garrett:'#0D6174',aura:'#C98A1B',none:'#A9B4BA',ok:'#0D6174',pend:'#E0A83A',b1:'#B9DCE3',b2:'#6FAFBE',b3:'#0D6174',over:'#B3242D',grid:'#E2E7EA',txt:'#66737C'};
@@ -1464,6 +1695,8 @@ document.addEventListener('click',e=>{
   const sw=e.target.closest('[data-sec]');if(sw){V.sec=sw.dataset.sec;render();return}
   const ptb=e.target.closest('[data-ptab]');if(ptb){V.polTab=ptb.dataset.ptab;V.polDet=null;V.polNew=false;render();return}
   const pfb=e.target.closest('[data-polf]');if(pfb){V.polF=pfb.dataset.polf;render();return}
+  const cfb=e.target.closest('[data-capf]');if(cfb){V.capF=cfb.dataset.capf;render();return}
+  const cmb=e.target.closest('[data-cmode]');if(cmb&&V.capEd){V.capEd.mode=cmb.dataset.cmode;render();return}
   const hb=e.target.closest('[data-hours]');if(hb){V.pf.hours=+hb.dataset.hours;if(V.pf.hours!==2)V.pf.split=false;render();return}
   const sb=e.target.closest('[data-split]');if(sb){V.pf.split=sb.dataset.split==='1';render();return}
   const a=e.target.closest('[data-act]');if(!a)return;
@@ -1489,6 +1722,42 @@ document.addEventListener('click',e=>{
       if(b.n===2&&!G.repCols.has('Bloque')){toast('Falta la columna Bloque en Reposiciones. Pide a RH que abra el sistema y vuelve a intentarlo.');return}
       if(!armed(a,'¿Confirmas? Toca otra vez'))return;const rest=x.reps.filter(q=>q!==b&&!q.done).length;
       act(()=>addItem('reposiciones',{Title:x.reps.length>1?`${x.id}-${b.n}`:x.id,PermisoId:+x.spId,...(b.n>1?{Bloque:b.n}:{})}),rest?`Listo. Queda pendiente la otra hora de ${who(x.emp).name}.`:`Listo. ${who(x.emp).name} quedó al día con ese permiso.`);break}
+    case'capNew':V.capEd={title:'',desc:'',mode:'file',link:'',dur:'',min:CAPMIN,qs:[newQ()]};G.capFile=null;render();window.scrollTo({top:0});break;
+    case'capEdit':{const c=S.caps.find(x=>x.id===id),key=S.keys.find(k=>k.cap===String(c.spId)&&k.round===1)?.key||[];
+      V.capEd={spId:c.spId,title:c.title,desc:c.desc,mode:c.link?'link':'file',link:c.link,dur:c.dur||'',min:c.min,videoId:c.videoId,videoName:c.videoName,
+        qs:(c.rounds[0]?.qs||[]).map(q=>({id:q.id,type:q.type,t:q.t,opts:q.type==='tf'?[]:[...q.opts],ok:(key.find(k=>k.q===q.id)?.ok||'').split(',').filter(x=>x!=='').map(Number)}))};G.capFile=null;render();window.scrollTo({top:0});break}
+    case'capRound':{const c=S.caps.find(x=>x.id===id),fail=S.people.filter(p=>capState(c,p.id).st==='fail').map(p=>p.id);
+      V.capEd={roundOf:c.id,n:c.rounds.length+1,para:fail,qs:[newQ()]};render();window.scrollTo({top:0});break}
+    case'capEdCancel':V.capEd=null;G.capFile=null;render();break;
+    case'capEdSave':capEdSave();break;
+    case'capRoundSend':capRoundSend();break;
+    case'qAdd':V.capEd.qs.push(newQ());render();break;
+    case'qDel':V.capEd.qs.splice(+a.dataset.qi,1);render();break;
+    case'optAdd':V.capEd.qs[+a.dataset.qi].opts.push('');render();break;
+    case'optDel':{const q=V.capEd.qs[+a.dataset.qi],j=+a.dataset.oj;q.opts.splice(j,1);q.ok=q.ok.filter(x=>x!==j).map(x=>x>j?x-1:x);render();break}
+    case'capOpen':V.capDet=id;V.capF='all';render();window.scrollTo({top:0});break;
+    case'capBack':V.capDet=null;render();break;
+    case'capTest':V.cap={id,test:true,step:'video',round:1,ans:{}};render();window.scrollTo({top:0});break;
+    case'capGo':V.cap={id,test:false,ans:{}};render();window.scrollTo({top:0});break;
+    case'capExit':V.cap=null;render();break;
+    case'capSkip':if(V.cap){V.cap.vdone=true;V.cap.left=0;const b=document.getElementById('cOk');if(b)b.disabled=false}break;
+    case'capVideoDone':{const k=V.cap,c=k&&S.caps.find(x=>x.id===k.id);if(!c||document.getElementById('cOk')?.disabled)return;
+      if(k.test){k.step='exam';render();window.scrollTo({top:0});break}
+      const n=capState(c,me().id).round;act(()=>addItem('avance',{Title:`${c.id}-R${n}-video`,CapacitacionId:+c.spId,Ronda:n,Tipo:'video'}),'Video terminado. Ahora el examen.').then(()=>window.scrollTo({top:0}));break}
+    case'capSubmit':{const k=V.cap,c=k&&S.caps.find(x=>x.id===k.id);if(!c)return;const r=k.test?c.rounds.find(x=>x.n===k.round):capState(c,me().id).cur,qs=r?.qs||[];
+      const miss=qs.findIndex(q=>!(k.ans[q.id]||new Set()).size);if(miss>=0){toast(`Te falta responder la pregunta ${miss+1}.`);return}
+      if(!armed(a,'¿Enviar? Toca otra vez'))return;const ans={};qs.forEach(q=>ans[q.id]=okStr(k.ans[q.id]));
+      if(k.test){k.score=gradeLocal(S.keys.find(x=>x.cap===String(c.spId)&&x.round===r.n)?.key||[],ans);k.step='result';render();window.scrollTo({top:0});break}
+      act(()=>addItem('avance',{Title:`${c.id}-R${r.n}-examen`,CapacitacionId:+c.spId,Ronda:r.n,Tipo:'examen',Respuestas:JSON.stringify(ans)}),'Respuestas enviadas.').then(()=>window.scrollTo({top:0}));break}
+    case'capStart':{const c=S.caps.find(x=>x.id===id);if(!armed(a,'¿Empezar? Toca otra vez'))return;const now=new Date().toISOString(),rounds=c.rounds.map(r=>r.n===1?{...r,fecha:now}:r);
+      act(()=>setItem('capacitaciones',c.spId,{Estado:'Activa',FechaInicio:now,Rondas:JSON.stringify(rounds)}),'La capacitación ya está activa para todos.');break}
+    case'capClose':{const c=S.caps.find(x=>x.id===id);if(!armed(a,'¿Cerrar? Toca otra vez'))return;act(()=>setItem('capacitaciones',c.spId,{Estado:'Cerrada'}),'Capacitación cerrada.');break}
+    case'capExcel':{const c=S.caps.find(x=>x.id===id);capExcel(c).catch(e=>toast('No se pudo crear el Excel: '+e.message));break}
+    case'capDel':{const c=S.caps.find(x=>x.id===id);if(!armed(a,'¿Eliminar todo? Toca otra vez'))return;
+      act(async()=>{for(const x of S.adv.filter(x=>x.cap===String(c.spId)))await delItem('avance',x.spId);
+        for(const x of S.keys.filter(x=>x.cap===String(c.spId)))await delItem('claves',x.spId);
+        await delItem('capacitaciones',c.spId);if(c.videoId&&G.capDrive){try{await gx('DELETE',`/drives/${G.capDrive}/items/${c.videoId}`)}catch(e){console.warn('No se pudo borrar el video',e)}}
+        V.capDet=null},'Capacitación eliminada, con sus resultados y su video.');break}
     case'polNew':V.polNew=true;render();break;
     case'polCancel':V.polNew=false;render();break;
     case'polSave':polSave();break;
@@ -1573,7 +1842,7 @@ const FORM_SEL='#app input[id],#app select[id],#app textarea[id]';
 function snapForm(){const o={};document.querySelectorAll(FORM_SEL).forEach(el=>{if(el.type!=='file')o[el.id]=el.type==='checkbox'?el.checked:el.value});return o}
 function restoreForm(o){if(!o)return;Object.entries(o).forEach(([id,v])=>{const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=v;else el.value=v});
   ['n','e'].forEach(pre=>{const c=document.getElementById(pre+'Calc');if(c&&typeof calcText==='function')c.innerHTML=calcText(pre,pre==='e'?who(V.person):null)})}
-function softRefresh(){if(V.read||V.polNew)return Promise.resolve();const ae=document.activeElement,focusId=ae&&ae.id,snap=snapForm();
+function softRefresh(){if(V.read||V.polNew||V.cap||V.capEd)return Promise.resolve();const ae=document.activeElement,focusId=ae&&ae.id,snap=snapForm();
   return loadAll().then(()=>{render();restoreForm(snap);if(focusId){const el=document.getElementById(focusId);if(el){el.focus();try{const n=el.value.length;el.setSelectionRange&&el.setSelectionRange(n,n)}catch(e){}}}}).catch(()=>{})}
 const DKEY='gg-vac-borrador';
 function draftCtx(){return V.adding?'add':V.person?'edit:'+V.person:V.importing?'imp':V.tab==='fer'?'fer':''}
