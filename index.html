@@ -1641,7 +1641,7 @@ function descDays(ds){const by=[];ds.forEach(d=>{const [y,m,dd]=d.k.split('-').m
   return by.map(g=>`${g.d.join('-')} ${MESES[g.m-1]}`).join(' y ')}
 function payrollSheets(a,b){
   const inP=k=>k>=a&&k<=b;
-  const base=(p,first,n,val,desc)=>({_emp:empKey(p),'Empleado':empNoX(p),'Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':xd(first),'Valor':val,'Campo total dias':'','Descripcion':desc});
+  const base=(p,first,n,val,desc)=>({_emp:empKey(p),'Empleado':empNoX(p),'Nombre':p?.name||'','Unidad Operativa':unitX(p),'Rige desde':xd(first),'Dias':n,'Afecta planilla':xd(first),'Valor':val,'Campo total dias':'','Descripcion':desc});
   const vac=[],sin=[],con=[];
   S.reqs.filter(r=>r.status==='ok').sort((x,y)=>x.created-y.created).forEach(r=>{const p=who(r.emp);
     let paidLeft=total(r.days)-(r.unpaid||0);const paidD=[],unpD=[];
@@ -1669,7 +1669,7 @@ async function downloadExcel(a,b){a=a||V.xf.a;b=b||V.xf.b;
   const perm=S.perms.filter(x=>x.status!=='no'&&x.status!=='cancel').map(x=>{const p=who(x.emp);return{'Nombre':p?.name||x.emp,'Departamento':p?.dept||'','Fecha':xd(x.k),'Fecha solicitado':xdc(x.created),
     'Horario':`${hhmm(x.start)} a ${hhmm(x.start+x.hours)}`,'Horas':x.hours,'Motivo':x.motive,'Repone':xd(x.reps[0]?.k),'Hora reposición':x.reps[0]?`${hhmm(x.reps[0].start)} a ${hhmm(x.reps[0].start+x.reps[0].h)}`:'','Repone (2.ª hora)':x.reps[1]?xd(x.reps[1].k):'','Hora reposición (2.ª hora)':x.reps[1]?`${hhmm(x.reps[1].start)} a ${hhmm(x.reps[1].start+1)}`:'','Repuesto':x.repaid?'Sí':x.reps.some(b=>b.done)?'1 de 2 horas':'No','Estado':ESTADO_TXT[x.status]||x.status}}).sort((a,b)=>a.Fecha-b.Fecha);
   const vacD=vac.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b}),permD=perm.filter(r=>{const k=K(r.Fecha);return k>=a&&k<=b});
-  const pl=payrollSheets(a,b),PCOL=['Empleado','Unidad Operativa','Rige desde','Dias','Afecta planilla','Valor','Campo total dias','Descripcion'];
+  const pl=payrollSheets(a,b),PCOL=['Empleado','Nombre','Unidad Operativa','Rige desde','Dias','Afecta planilla','Valor','Campo total dias','Descripcion'];
   const wb=XLSX.utils.book_new();
   const add=(rows,name,cols)=>{const ws=XLSX.utils.json_to_sheet(rows.length?rows:[Object.fromEntries(cols.map(c=>[c,'']))],{header:cols,dateNF:'dd/mm/yyyy'});ws['!cols']=cols.map(c=>({wch:Math.max(12,c.length+2,...rows.slice(0,200).map(r=>String(r[c]??'').length+1))}));XLSX.utils.book_append_sheet(wb,ws,name)};
   /* Hojas de planilla: cada fila con el color de su empresa + cajita de colores abajo */
