@@ -822,7 +822,7 @@ function tabs(){const u=me(),q=queue().length+toConfirm().length,t=[['vac','Vaca
 function render(){
   const T=tabs();if(!T.some(t=>t[0]===V.tab))V.tab='vac';
   const u=me(),b=bal(u.id),nv=nextVac(u.id),o=owed(u.id),ol=owedL(u.id)[0];
-  const SECS=[...(u.role==='rh'?[['dash','Dashboard']]:[]),['vac','Vacaciones y permisos'],['pol','Gestión de políticas internas']];
+  const SECS=[...(u.role==='rh'?[['dash','Dashboard']]:[]),['vac','Vacaciones y permisos'],['pol','Gestión de políticas, manuales y procedimientos internos']];
   if(!SECS.some(x=>x[0]===V.sec))V.sec=SECS[0][0];
   if(!(V.sec==='pol'&&V.read))readerStop();
   if(!(V.sec==='pol'&&V.cap))capStop();
@@ -896,7 +896,7 @@ function vPol(){
   if(V.cap)return vCapPlay();
   if(V.audEd)return vAudEdit();
   if(!G.extraOk&&G.listIds.politicas)return '<div class="soon"><div class="spin" aria-hidden="true"></div><p>Cargando políticas y capacitaciones…</p></div>';
-  if(!G.listIds.politicas)return `<div class="soon"><h2>Gestión de políticas internas</h2><p>${isRH?'Las listas de políticas todavía no existen. Se crean solas cuando RH abre el sistema; recarga la página en un momento.':'Aquí vas a encontrar las políticas internas para leer y las capacitaciones con su examen. Muy pronto.'}</p></div>`;
+  if(!G.listIds.politicas)return `<div class="soon"><h2>Gestión de políticas, manuales y procedimientos internos</h2><p>${isRH?'Las listas de políticas todavía no existen. Se crean solas cuando RH abre el sistema; recarga la página en un momento.':'Aquí vas a encontrar las políticas, manuales y procedimientos internos para leer y las capacitaciones con su examen. Muy pronto.'}</p></div>`;
   const T=[['mine','Mis políticas',polPendCount()],['caps','Mis capacitaciones',capPendCount()],...(isRH?[['admin','Administrar políticas'],...(G.listIds.capacitaciones?[['capadmin','Administrar capacitaciones']]:[])]:[])];
   if(!T.some(t=>t[0]===V.polTab))V.polTab='mine';
   return `<nav class="tabs" role="tablist">${T.map(([id,l,c])=>`<button class="tab" role="tab" aria-selected="${V.polTab===id}" data-ptab="${id}">${l}${c?`<b>${c}</b>`:''}</button>`).join('')}</nav>`+({admin:vPolAdmin,caps:vCapMine,capadmin:vCapAdmin}[V.polTab]||vPolMine)();
@@ -913,7 +913,7 @@ function vPolAdmin(){
   if(V.polNew)return vPolNew();
   if(V.polDet){const p=(S.pols||[]).find(x=>x.id===V.polDet);if(p)return vPolDetail(p);V.polDet=null}
   const rows=(S.pols||[]).map(p=>{const au=polAud(p);return{p,n:au.length,d:p.status==='Borrador'?0:au.filter(x=>polState(p,x.id).done).length}});
-  return `<div class="phead"><div><h2 class="ph2" style="margin:0">Políticas internas</h2><p class="small muted" style="margin:2px 0 0">Sube el PDF, revísalo con “Probar como colaborador” y cuando esté listo tócale Empezar.</p></div><button class="btn primary" data-act="polNew">Nueva política</button></div>
+  return `<div class="phead"><div><h2 class="ph2" style="margin:0">Políticas, manuales y procedimientos internos</h2><p class="small muted" style="margin:2px 0 0">Sube el PDF, revísalo con “Probar como colaborador” y cuando esté listo tócale Empezar.</p></div><button class="btn primary" data-act="polNew">Nueva política</button></div>
   ${rows.length?`<div class="tbl"><table class="ptab"><thead><tr><th>Política</th><th>Estado</th><th>Inicio</th><th style="width:32%">Lectura</th><th></th></tr></thead><tbody>${rows.map(({p,n,d})=>`<tr class="click" data-act="polOpen" data-id="${p.id}"><td><strong>${esc(p.title)}</strong><small>${p.pages} páginas · ${p.parts} ${p.parts===1?'parte':'partes'}</small></td><td>${polPill(p)}</td><td>${p.start?dtF(p.start):'—'}</td>
     <td>${p.status==='Borrador'?'<span class="small muted">Sin empezar</span>':`<div class="prog"><div class="pbar"><i style="width:${n?d/n*100:0}%"></i></div><span>${d} de ${n}</span></div>`}</td><td class="chev" aria-hidden="true">›</td></tr>`).join('')}</tbody></table></div>`
   :'<div class="soon"><h2>Todavía no hay políticas</h2><p>Crea la primera con el botón “Nueva política”.</p></div>'}`;
