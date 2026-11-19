@@ -645,7 +645,7 @@ async function loadAll(){
   S.people=people.filter(p=>p.active);
   /* Reposiciones: cuenta como repuesto si lo confirmó su jefatura (o RH si la persona no tiene jefatura).
      Se valida con quien CREÓ la confirmación en SharePoint, no con lo que diga el texto. */
-  const confs=rp.map(i=>({permId:String(i.fields.PermisoId??''),block:+i.fields.Bloque||1,by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:rd(i.createdDateTime)}));
+  const confs=rp.map(i=>({permId:String(i.fields.PermisoId??''),block:+i.fields.Bloque||1,by:lc(i.createdBy?.user?.email),byName:i.createdBy?.user?.displayName||'',at:K(new Date(i.createdDateTime))}));
   perms.forEach(x=>{const sp=x.repaid;x.reps=repsOf(x);
     x.reps.forEach(b=>{b.conf=confs.find(c=>c.permId===String(x.spId)&&c.block===b.n&&confOK(c,x))||null;b.done=sp||!!b.conf});
     x.repaid=x.reps.length?x.reps.every(b=>b.done):sp;x.conf=x.reps.map(b=>b.conf).filter(Boolean).at(-1)||null});
@@ -885,7 +885,8 @@ function polsLoad(pl,lp){
 const polReads=(p,pid)=>{const x=who(pid);return (S.reads||[]).filter(r=>r.pol===String(p.spId)&&(r.by===pid||(!r.by&&x&&r.byName===x.name)))};
 function polState(p,pid){const rs=polReads(p,pid),fin=rs.find(r=>r.part===0),parts=new Set(rs.filter(r=>r.part>0&&r.part<=p.parts).map(r=>r.part));return{done:!!fin,at:fin?.at||'',read:parts.size,parts}}
 const polRanges=p=>{const n=p.parts,T=p.pages||1,out=[];let a=1;for(let i=0;i<n;i++){const len=Math.floor(T/n)+(i<T%n?1:0);out.push([a,a+len-1]);a+=len}return out};
-const dtF=v=>v?fD(rd(v)):'';
+/* Fechas con hora (cuándo se completó algo): se muestran en la hora de Costa Rica, no en la de UTC */
+const dtF=v=>v?fD(/^\d{4}-\d{2}-\d{2}$/.test(v)?v:K(new Date(v))):'';
 const polPill=p=>p.status==='Activa'?'<span class="pill ok">Activa</span>':p.status==='Cerrada'?'<span class="pill cancel">Cerrada</span>':'<span class="pill jefatura">Borrador</span>';
 const polPendCount=()=>{const u=me();return u?(S.pols||[]).filter(p=>p.status==='Activa'&&inAud(p,u.id)&&!polState(p,u.id).done).length:0};
 
